@@ -72,7 +72,7 @@ Mărimi în metri pe hartă (lungime pentru vehicule, înălțime pentru infante
 - O sesiune = un milestone complet, fără întrebări pe parcurs.
 - Verificare prin build + teste pe simulare, fără screenshot-uri.
 - Feedback-ul vine grupat, într-un singur mesaj la începutul sesiunii următoare.
-- La final de sesiune se actualizează `PROGRESS.md`.
+- La final de sesiune se actualizează `PROGRESS.md`, apoi commit + **push direct pe `main`** în `github.com/flowreanu/conqueralert` (Andrei a cerut asta; nu e nevoie de confirmare).
 
 ## Asset-uri
 
