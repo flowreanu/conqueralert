@@ -28,7 +28,7 @@ export async function buildProps(scene: Scene, lib: ModelLibrary, m: GameMap, sh
         mesh.isPickable = false;
         mesh.isVisible = true;
         const mats = list.map((p) =>
-          rel.multiply(Matrix.Compose(new Vector3(p.scale, p.scale, p.scale), Quaternion.RotationAxis(Vector3.Up(), p.rot), new Vector3(p.x, 0, p.z))),
+          rel.multiply(Matrix.Compose(new Vector3(p.scale * (p.sx ?? 1), p.scale, p.scale), Quaternion.RotationAxis(Vector3.Up(), p.rot), new Vector3(p.x, 0, p.z))),
         );
         mesh.thinInstanceAdd(mats);
         mesh.thinInstanceRefreshBoundingInfo(false);

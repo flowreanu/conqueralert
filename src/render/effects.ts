@@ -23,6 +23,7 @@ export class EffectsRenderer {
   private proj = new Map<number, InstancedMesh>();
   private fx: Fx[] = [];
   private tmp = new Vector3();
+  private trailT = 0;
 
   constructor(scene: Scene, private world: World) {
     const glow = (name: string, hex: string) => {
@@ -51,6 +52,19 @@ export class EffectsRenderer {
     this.src.arc.material = glow("fx-arc-m", "#ffb347");
     this.src.rocket = hide(MeshBuilder.CreateBox("fx-rocket", { width: 0.16, height: 0.16, depth: 0.9 }, scene));
     this.src.rocket.material = glow("fx-rocket-m", "#ff8a3a");
+    // racheta V3: corp lung + vârf (axa lungă pe Z, ca restul proiectilelor)
+    const body = MeshBuilder.CreateCylinder("fx-missile-b", { height: 3.4, diameter: 0.5, tessellation: 8 }, scene);
+    body.rotation.x = Math.PI / 2;
+    const nose = MeshBuilder.CreateCylinder("fx-missile-n", { height: 0.9, diameterTop: 0, diameterBottom: 0.5, tessellation: 8 }, scene);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.z = 2.15;
+    const flame = MeshBuilder.CreateCylinder("fx-missile-f", { height: 1.1, diameterTop: 0.45, diameterBottom: 0, tessellation: 6 }, scene);
+    flame.rotation.x = Math.PI / 2;
+    flame.position.z = -2.2;
+    body.material = solid("fx-missile-bm", "#5d6152");
+    nose.material = solid("fx-missile-nm", "#b8352b");
+    flame.material = glow("fx-missile-fm", "#ffb347");
+    this.src.missile = hide(Mesh.MergeMeshes([body, nose, flame], true, true, undefined, false, true)!);
     this.src.flash = hide(sphere("fx-flash", 1));
     this.src.flash.material = glow("fx-flash-m", "#fff1b0");
     this.src.fire = hide(sphere("fx-fire", 1));
@@ -72,7 +86,7 @@ export class EffectsRenderer {
     for (const e of events) {
       if (e.kind === "fire") {
         const w = WEAPONS[e.weapon];
-        if (w.projectile === "rocket") this.spawn("smoke", e.x, e.y, e.z, 0.4, 1.1, 0.1, 0.8, 0.3, 1.2);
+        if (w.projectile === "rocket" || w.projectile === "missile") this.spawn("smoke", e.x, e.y, e.z, w.projectile === "missile" ? 1 : 0.4, w.projectile === "missile" ? 2.6 : 1.1, 0.1, w.projectile === "missile" ? 1.6 : 0.8, 0.3, 1.2);
         else this.spawn("flash", e.x, e.y, e.z, w.projectile === "bullet" ? 0.35 : 0.9, w.projectile === "bullet" ? 0.5 : 1.5, 0.2, 0.1, 0.3);
       } else if (e.kind === "impact") {
         const w = WEAPONS[e.weapon];
@@ -126,6 +140,11 @@ export class EffectsRenderer {
       const y = p.prevY + (p.y - p.prevY) * alpha;
       const z = p.prevZ + (p.z - p.prevZ) * alpha;
       inst.position.set(x, y, z);
+      // dâra de fum a rachetei V3
+      if (WEAPONS[p.weapon].projectile === "missile") {
+        this.trailT += dt;
+        if (this.trailT > 0.045) { this.trailT = 0; this.spawn("smoke", x, y, z, 0.5, 1.4, 1.9, 1.6, 0.25, 0.4); }
+      }
       const dx = p.x - p.prevX, dy = p.y - p.prevY, dz = p.z - p.prevZ;
       if (dx * dx + dz * dz > 1e-6) {
         this.tmp.set(x + dx, y + dy, z + dz);

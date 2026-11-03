@@ -30,6 +30,8 @@ export interface ModelDef {
   yaw: number;
   noAlign?: boolean;
   height?: number;
+  /** scară fixă (metri per unitate a modelului) — kiturile Kenney, unde proporțiile dintre piese contează */
+  unitScale?: number;
   /** model cu schelet și animații (infanteria Toon Shooter): o instanță completă per unitate */
   animated?: boolean;
   /** suprascrieri: nume material → primary | light | secondary | dark | glass | skin | none (culoarea originală) */
@@ -256,7 +258,7 @@ export class ModelLibrary {
     align.position.set(-b.center.x, -b.min.y, -b.center.z);
     // 3) scară
     b = bounds(align);
-    const s = def.height ? def.height / b.size.y : fitScale(b.size, target, measure);
+    const s = def.unitScale ?? (def.height ? def.height / b.size.y : fitScale(b.size, target, measure));
     scaleNode.scaling.setAll(s);
 
     // 4) recolorare

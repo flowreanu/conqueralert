@@ -1,4 +1,5 @@
 import { makeNoise, makeRng } from "./rng";
+import { buildDecor } from "./decor";
 
 export const enum Terrain {
   Grass = 0,
@@ -15,6 +16,8 @@ export interface Prop {
   z: number;
   rot: number;
   scale: number;
+  /** întindere pe axa X a modelului (plăcile de drum) */
+  sx?: number;
 }
 
 export interface BaseSpot {
@@ -45,6 +48,10 @@ export interface GameMap {
   oreFields: { cx: number; cy: number; r: number }[];
   /** minereu rămas per celulă (credite); 0 = epuizat */
   ore: Uint16Array;
+  /** 1 = drum (doar vizual) */
+  roads: Uint8Array;
+  /** piețele orașelor (pavaj), în celule */
+  plazas: { cx: number; cy: number; r: number }[];
 }
 
 export const ORE_MAX = 500;
@@ -92,6 +99,8 @@ export function generateDeltaMap(seed = 1337): GameMap {
     bridges: [],
     oreFields: [],
     ore: new Uint16Array(W * H),
+    roads: new Uint8Array(W * H),
+    plazas: [],
   };
   const rng = makeRng(seed);
   const noise = makeNoise(seed);
@@ -156,8 +165,16 @@ export function generateDeltaMap(seed = 1337): GameMap {
         }
       }
 
-  // Zone fără decor: baze, capete de pod, minereu.
+  // Drumuri, orășele, mașini (S4.2)
+  const decor = buildDecor(m, rng);
+  m.roads = decor.roads;
+  m.plazas = decor.plazas;
+
+  // Zone fără decor: baze, capete de pod, minereu, drumuri, curți.
   const keepClear = (x: number, y: number) => {
+    const ci = y * W + x;
+    if (m.roads[ci] || decor.occupied[ci] || m.blocked[ci]) return true;
+    for (const p of m.plazas) if (Math.hypot(x - p.cx, y - p.cy) < p.r + 2) return true;
     for (const b of m.bases) if (Math.hypot(x - b.cx, y - b.cy) < 17) return true;
     for (const br of m.bridges) {
       const cy = (br.y0 + br.y1) / 2;

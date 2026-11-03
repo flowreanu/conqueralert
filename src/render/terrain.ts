@@ -2,6 +2,7 @@ import { Color3, Color4, Mesh, MeshBuilder, Scene, StandardMaterial, VertexData 
 import { GameMap, Terrain, idx, inBounds } from "../map/gameMap";
 import { makeNoise } from "../map/rng";
 import { solidMaterial } from "./models";
+import { applyTerrainTextures } from "./terrainSplat";
 
 export const WATER_Y = -0.55;
 export const BRIDGE_Y = 0.32;
@@ -94,6 +95,7 @@ export function buildTerrain(scene: Scene, m: GameMap): Mesh {
   mat.diffuseColor = Color3.White();
   mat.specularColor = new Color3(0.02, 0.02, 0.02);
   ground.material = mat;
+  applyTerrainTextures(scene, mat, m);
   ground.receiveShadows = true;
   ground.isPickable = false;
   ground.freezeWorldMatrix();

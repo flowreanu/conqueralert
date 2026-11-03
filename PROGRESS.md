@@ -7,6 +7,8 @@
 - [x] S3: economie + construcție + producție + sidebar
 - [x] S4: bot + ceață + victorie + meniu + deploy → **Demo v0.1**
 - [x] S4.1: echilibrare (infanterie, bot Ușor, urmărire, minereu)
+- [x] S4.2: aspect vizual — drumuri, orășele, texturi de teren, V3, recoltor nou
+- [ ] UI (următorul pas cerut de Andrei)
 - [ ] S5: facțiunea Japonia
 
 ## Ce s-a făcut în S1
@@ -86,6 +88,16 @@ Feedback: pe Ușor botul producea foarte mult și foarte repede; după ce a urm�
 - 60 de teste (3 noi: infanteria la cost egal, plafonul botului Ușor, riposta care se întoarce la post).
 - Rămas: harta nu e perfect simetrică (podurile la rândurile 40 și 74, bazele la 50 și 46). Pentru meciuri complet corecte ar trebui o hartă în oglindă / rotită la 180°.
 
+## S4.2 — aspect vizual (hartă, texturi, V3, recoltor)
+Andrei a urcat în `assets_src/` patru kituri Kenney (Car Kit, City Kit Roads / Suburban / Commercial) și cinci texturi ambientCG.
+- **Harta** (`src/map/decor.ts`): două șosele est–vest care trec peste cele două poduri, câte un drum nord–sud pe fiecare mal și intrări spre baze; plăci Kenney de 6 m (întinse ca să se potrivească exact între intersecții), felinare. Patru **orășele** la intersecțiile de pe maluri: clădiri comerciale lângă piață (pavaj), case cu garduri mai departe, mașini pe alei, copaci în curți. Casele și mașinile blochează celulele (ca un copac); drumurile sunt doar vizuale. Fără clădiri civile lângă baze (20 de celule), poduri și minereu. `GameMap.roads` / `GameMap.plazas` noi; `Prop.sx` = întindere pe X.
+- **Teren** (`src/render/terrainSplat.ts`): plugin de material care amestecă texturile în shader. Iarba (Ground068) e doar *detaliu* peste culorile stilizate (păstrează aspectul low-poly, la două scări ca să nu se vadă repetiția); peste ea, după o hartă de ponderi pe celule: pietriș în baze / pe acostamente / lângă minereu, pietre pe maluri și în albie, sol de pădure sub copaci, pavaj în piețe.
+- **Katiușa → Lansator V3**: camion Kenney (`truck-flat`) în culoarea facțiunii + rachetă modelată în cod (corp, vârf roșu, aripioare, rampă). Racheta apare când e reîncărcată, se ridică la ~45° când are țintă și dispare la lansare; zboară în arc înalt, cu dâră de fum. Arma `v3`: 105 damage (rocket), explozie 3,5 m, rază 8–40 m, 7 s reîncărcare (în loc de 4 rachete × 24).
+- **Recoltor**: încărcător frontal Kenney (`tractor-shovel`) în culorile facțiunii, în locul SUV-ului.
+- **Modele Kenney**: `scripts/prepare-kenney.mjs` copiază ce folosim în `public/models/{roads,suburban,commercial,cars}/` (cu `Textures/colormap.png` — modelele citesc paleta din fișier extern) și recolorează căsuțele paletei (grilă 16×4 de degradeuri) pentru vehiculele de facțiune și pentru cele 3 variante de culoare ale caselor (`suburban1..3`, `commercial1..3`). `models.json`: câmp nou `unitScale` (metri per unitate Kenney: drumuri 6, case 5, comerciale 7, mașini 1,55).
+- Testele de mișcare / luptă caută acum teren liber (pe hartă sunt și orășele); 60 de teste trec. Meciuri bot contra bot după schimbări: Greu bate Ușor, oglinzile ~egale.
+- Idei pentru mai departe: clădiri civile distructibile / ocupabile de infanterie (ca în RA2), mașini civile care se pot strivi, poduri distructibile.
+
 ## Note pentru sesiunea următoare (S5 — Japonia)
 - Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `tank` / `support` / `economy`).
 - Harta are doar 2 baze (vest/est) → pentru SUA vs Japonia sau URSS vs Japonia, `createMatchWorld` trebuie să atribuie bazele după index, nu după facțiune.
@@ -98,8 +110,6 @@ Feedback: pe Ușor botul producea foarte mult și foarte repede; după ce a urm�
 - `Sci-Fi Essentials Kit[Standard].zip` (167 MB) — pentru Japonia (S5); aceeași problemă de mărime.
 
 ## Probleme cunoscute / provizorii
-- Katiușa (`artillery1`) e un tun vechi cu roți — provizoriu.
-- Recoltorul e acum un SUV (`q_SUV`) — măcar e vehicul de sol, dar nu arată a utilaj minier; de înlocuit când găsim un camion.
 - Ambele facțiuni au aceleași modele pentru Centrală / Rafinărie / Barăci / Centrul de Construcție (diferă fundația colorată).
 - Recoltorul descarcă oriunde lângă docul rafinăriei (nu „intră” în clădire).
 - Liberty și Ursus vin din același pachet → silueta e asemănătoare; diferă prin mărime (5,5 vs 6,5 m) și culoare.

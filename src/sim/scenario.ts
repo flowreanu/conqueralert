@@ -1,5 +1,5 @@
 import { generateDeltaMap } from "../map/gameMap";
-import { World } from "./world";
+import { World, nearestPassable } from "./world";
 
 /**
  * Scenariul demo S1: fiecare facțiune are cele 6 clădiri (statice, pentru verificarea scării)
@@ -35,9 +35,8 @@ export function createDemoWorld(seed = 1337): World {
   const army = (owner: number, types: string[], cx: number, cy: number, facing: number) => {
     const cols = 4;
     types.forEach((t, i) => {
-      const x = (cx + (i % cols) * 3.2) * cs;
-      const z = (cy + Math.floor(i / cols) * 3.2) * cs;
-      w.spawnUnit(t, owner, x, z, facing);
+      const p = nearestPassable(map, (cx + (i % cols) * 3.2) * cs, (cy + Math.floor(i / cols) * 3.2) * cs);
+      w.spawnUnit(t, owner, p.x, p.z, facing);
     });
   };
   army(0, ["liberty", "liberty", "liberty", "sentinel", "ranger", "ranger", "ranger", "ranger", "harvUsa"], 22, 54, 0);

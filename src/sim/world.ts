@@ -33,6 +33,8 @@ export interface UnitDef {
   prereq?: string[];
   /** recoltor: capacitatea (credite) */
   capacity?: number;
+  /** piese animate speciale în randare (ex. „v3” = racheta de pe camion) */
+  rig?: string;
 }
 export interface BuildingDef {
   name: string;
@@ -62,7 +64,7 @@ export interface WeaponDef {
   range: number;
   minRange?: number;
   cooldown: number;
-  projectile: "bullet" | "shell" | "arc" | "rocket";
+  projectile: "bullet" | "shell" | "arc" | "rocket" | "missile";
   speed: number;
   /** [distanța în față, înălțimea] gurii țevii, în metri */
   muzzle: [number, number];
@@ -687,6 +689,7 @@ export class World {
       p.y = p.sy + (groundY - p.sy) * k;
       if (w.projectile === "arc") p.y += Math.sin(Math.PI * k) * Math.max(6, Math.hypot(p.tx - p.sx, p.tz - p.sz) * 0.35);
       else if (w.projectile === "rocket") p.y += Math.sin(Math.PI * k) * Math.max(3, Math.hypot(p.tx - p.sx, p.tz - p.sz) * 0.18);
+      else if (w.projectile === "missile") p.y += Math.sin(Math.PI * k) * Math.max(8, Math.hypot(p.tx - p.sx, p.tz - p.sz) * 0.32);
       if (p.t >= 1) {
         this.projectiles.delete(p.id);
         this.impact(p, w);

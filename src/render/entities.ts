@@ -1,7 +1,7 @@
 import { AbstractMesh, AnimationGroup, Color3, InstancedMesh, Mesh, MeshBuilder, Scene, ShadowGenerator, StandardMaterial, TransformNode } from "./babylon";
 import buildingsData from "../data/buildings.json";
 import factionsData from "../data/factions.json";
-import { Building, BUILDING_DEFS, SimEvent, Unit, UNIT_DEFS, World, angleDiff } from "../sim/world";
+import { Building, BUILDING_DEFS, SimEvent, Unit, UNIT_DEFS, WEAPONS, World, angleDiff } from "../sim/world";
 import { MODEL_DEFS, ModelLibrary, solidMaterial } from "./models";
 import { buildingTargetMeters, unitTarget } from "./scaleMath";
 import { groundHeight } from "./terrain";
@@ -18,6 +18,8 @@ interface UnitView {
   dying: number;
   /** a tras recent → animația de tragere */
   shootT: number;
+  /** V3: racheta de pe camion (pivot la capătul din spate) */
+  missile: { pivot: TransformNode; angle: number } | null;
 }
 
 interface BuildingView {
@@ -153,7 +155,7 @@ export class EntityRenderer {
     // bara de viață nu se rotește cu unitatea → nod separat, poziționat în sync()
     const bar = this.makeBar(`u${u.id}`, Math.min(3.6, Math.max(1.6, def.radius * 1.5)), null);
     bar.node.metadata = { h: t.measure === "height" ? t.size + 0.6 : 3.4 };
-    const view: UnitView = { root, ring, ready: false, bar, anim: null, dying: 0, shootT: 0 };
+    const view: UnitView = { root, ring, ready: false, bar, anim: null, dying: 0, shootT: 0, missile: null };
     this.views.set(u.id, view);
     let model: TransformNode;
     if (MODEL_DEFS[def.model]?.animated) {
@@ -165,6 +167,7 @@ export class EntityRenderer {
     if (!this.views.has(u.id)) { model.dispose(); return; } // a murit între timp
     model.parent = root;
     this.castShadows(model);
+    if (def.rig === "v3") { view.missile = this.buildV3Missile(u.id, root); this.castShadows(view.missile.pivot); }
     const b = model.getHierarchyBoundingVectors(true);
     bar.node.metadata = { h: b.max.y - b.min.y + 0.7 };
     view.ready = true;
@@ -214,6 +217,40 @@ export class EntityRenderer {
         this.castShadows(inst);
       }),
     );
+  }
+
+  /** Racheta lungă a lansatorului V3: corp gri-oliv, vârf roșu, aripioare; se rotește în jurul capătului din spate. */
+  private buildV3Missile(id: number, root: TransformNode) {
+    const pivot = new TransformNode(`v3pivot${id}`, this.scene);
+    pivot.parent = root;
+    pivot.position.set(-2.35, 1.55, 0);
+    const L = 3.7, D = 0.52;
+    const parts: Mesh[] = [];
+    const body = MeshBuilder.CreateCylinder(`v3b${id}`, { height: L, diameter: D, tessellation: 10 }, this.scene);
+    body.rotation.z = -Math.PI / 2;
+    body.position.x = L / 2;
+    body.material = this.cachedMat("v3body", "#646a5a");
+    const nose = MeshBuilder.CreateCylinder(`v3n${id}`, { height: 0.95, diameterTop: 0, diameterBottom: D, tessellation: 10 }, this.scene);
+    nose.rotation.z = -Math.PI / 2;
+    nose.position.x = L + 0.47;
+    nose.material = this.cachedMat("v3nose", "#b8352b");
+    parts.push(body, nose);
+    // aripioarele în cruce, la coadă
+    for (const [h, d] of [[1.0, 0.06], [0.06, 1.0]]) {
+      const fin = MeshBuilder.CreateBox(`v3f${id}`, { width: 0.7, height: h, depth: d }, this.scene);
+      fin.position.x = 0.35;
+      fin.material = this.cachedMat("v3fin", "#3f4239");
+      parts.push(fin);
+    }
+    // rampa (două șine) rămâne pe camion
+    for (const z of [-0.32, 0.32]) {
+      const rail = MeshBuilder.CreateBox(`v3r${id}`, { width: 3.2, height: 0.12, depth: 0.12 }, this.scene);
+      rail.position.set(L * 0.42, -0.3, z);
+      rail.material = this.cachedMat("v3rail", "#2f312c");
+      parts.push(rail);
+    }
+    for (const p of parts) { p.parent = pivot; p.isPickable = false; }
+    return { pivot, angle: 0.12 };
   }
 
   private matCache = new Map<string, StandardMaterial>();
@@ -273,6 +310,15 @@ export class EntityRenderer {
         if (u.moving) this.playAnim(v, "Run_Gun", true, 0.95);
         else if (v.shootT > 0 || u.attackId) this.playAnim(v, "Idle_Shoot");
         else this.playAnim(v, "Idle");
+      }
+      if (v.missile) {
+        // V3: racheta apare când e reîncărcată, se ridică la ~45° când are țintă, dispare la lansare
+        const cd = WEAPONS[UNIT_DEFS[u.type].weapon!].cooldown;
+        const loaded = u.cooldown < cd * 0.5;
+        const want = loaded && u.attackId ? 0.8 : 0.12;
+        v.missile.angle += (want - v.missile.angle) * Math.min(1, dt * 2.5);
+        v.missile.pivot.rotation.z = v.missile.angle;
+        for (const c of v.missile.pivot.getChildMeshes(false)) if (!c.name.startsWith("v3r")) c.isVisible = loaded;
       }
       const x = u.prevX + (u.x - u.prevX) * alpha;
       const z = u.prevZ + (u.z - u.prevZ) * alpha;
