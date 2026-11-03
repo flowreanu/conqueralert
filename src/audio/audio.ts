@@ -95,19 +95,23 @@ class AudioEngine {
     out.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 1.5);
     let inner: { stop(): void } | null = null;
     let stopped = false;
-    // întâi încearcă fișierul (dacă Andrei pune un mp3 al lui), altfel muzica generată
-    const el = new Audio(`${import.meta.env.BASE_URL}audio/music_${faction}.mp3`);
-    el.loop = true;
-    el.preload = "auto";
+    // întâi încearcă fișierul (dacă există un mp3 propriu), altfel muzica generată
+    const url = `${import.meta.env.BASE_URL}audio/music_${faction}.mp3`;
     const useSynth = () => { if (!stopped && !inner) inner = playSong(this, SONGS[faction] ?? SONGS.usa, out); };
-    el.addEventListener("canplaythrough", () => {
+    const useFile = () => {
       if (stopped || inner) return;
+      const el = new Audio(url);
+      el.loop = true;
+      el.preload = "auto";
       ctx.createMediaElementSource(el).connect(out);
-      void el.play().catch(useSynth);
-      inner = { stop: () => el.pause() };
-    }, { once: true });
-    el.addEventListener("error", useSynth, { once: true });
-    setTimeout(useSynth, 1500); // fișier absent / servit greșit → nu așteptăm la nesfârșit
+      inner = { stop: () => { el.pause(); el.removeAttribute("src"); el.load(); } };
+      // pornește în streaming, nu așteaptă descărcarea completă
+      void el.play().catch(() => { inner = null; useSynth(); });
+    };
+    // verificăm doar dacă fișierul există (serverul de dev răspunde cu index.html pentru orice cale → tipul contează)
+    fetch(url, { method: "HEAD", cache: "no-cache" })
+      .then((r) => (r.ok && /audio|mpeg|octet-stream/.test(r.headers.get("content-type") ?? "") ? useFile() : useSynth()))
+      .catch(useSynth);
     this.track = {
       stop: (fade) => {
         stopped = true;
