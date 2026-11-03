@@ -1,0 +1,10 @@
+{
+  "ranger":    { "faction": "usa",  "name": "Ranger",        "role": "infantry",  "model": "marines01",   "scale": "infantry",  "speed": 3.2, "turnRate": 720, "radius": 0.6 },
+  "liberty":   { "faction": "usa",  "name": "Tanc Liberty",  "role": "tank",      "model": "armor",       "scale": "tankLight", "speed": 7.5, "turnRate": 200, "radius": 1.9 },
+  "sentinel":  { "faction": "usa",  "name": "Sentinel",      "role": "support",   "model": "howitzer",    "scale": "artillery", "speed": 5.0, "turnRate": 120, "radius": 1.9 },
+  "harvUsa":   { "faction": "usa",  "name": "Recoltor",      "role": "economy",   "model": "craft_miner", "scale": "harvester", "speed": 5.0, "turnRate": 120, "radius": 2.1 },
+  "conscript": { "faction": "ussr", "name": "Conscript",     "role": "infantry",  "model": "marines01",   "scale": "infantry",  "speed": 3.0, "turnRate": 720, "radius": 0.6 },
+  "ursus":     { "faction": "ussr", "name": "Tanc Ursus",    "role": "tank",      "model": "tank3",       "scale": "tankHeavy", "speed": 5.0, "turnRate": 120, "radius": 2.2 },
+  "katiusa":   { "faction": "ussr", "name": "Katiușa",       "role": "support",   "model": "artillery1",  "scale": "artillery", "speed": 5.5, "turnRate": 140, "radius": 1.9 },
+  "harvUssr":  { "faction": "ussr", "name": "Recoltor",      "role": "economy",   "model": "craft_miner", "scale": "harvester", "speed": 4.5, "turnRate": 110, "radius": 2.1 }
+}

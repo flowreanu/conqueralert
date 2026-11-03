@@ -1,0 +1,14 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2026; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #e8edf2; user-select: none; }
+#game { width: 100vw; height: 100vh; display: block; outline: none; touch-action: none; }
+.hud { position: fixed; pointer-events: none; background: rgba(16, 20, 26, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 10px; backdrop-filter: blur(4px); }
+#hud-top { top: 10px; left: 10px; display: flex; gap: 10px; align-items: center; }
+#hud-top b { letter-spacing: 0.08em; text-transform: uppercase; }
+.tag { padding: 1px 8px; border-radius: 3px; background: var(--c); color: #fff; font-weight: 600; }
+#fps { color: #8a96a3; font-variant-numeric: tabular-nums; }
+#hud-sel { bottom: 44px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60vw; }
+.chip { background: rgba(125, 255, 106, 0.14); border: 1px solid rgba(125, 255, 106, 0.4); border-radius: 3px; padding: 1px 7px; }
+.muted { color: #8a96a3; }
+#hud-help { bottom: 10px; left: 10px; right: 10px; color: #aab4bf; font-size: 12px; text-align: center; }
+.selbox { position: fixed; display: none; border: 1px solid #7dff6a; background: rgba(125, 255, 106, 0.1); pointer-events: none; z-index: 5; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; letter-spacing: 0.1em; background: #1b2026; z-index: 10; }

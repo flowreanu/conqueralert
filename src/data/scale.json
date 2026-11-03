@@ -1,0 +1,16 @@
+{
+  "cellSize": 2,
+  "units": {
+    "infantry":  { "size": 2.6, "measure": "height" },
+    "tankLight": { "size": 5.5, "measure": "length" },
+    "tankHeavy": { "size": 6.5, "measure": "length" },
+    "artillery": { "size": 5.5, "measure": "length" },
+    "harvester": { "size": 6.0, "measure": "length" }
+  },
+  "buildings": {
+    "small":  { "cells": 2 },
+    "medium": { "cells": 3 },
+    "large":  { "cells": 4 }
+  },
+  "buildingFill": 0.92
+}

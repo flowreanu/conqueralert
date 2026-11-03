@@ -1,0 +1,22 @@
+{
+  "armor": {"path": "models/units/armor.glb", "recolor": "cimpletoon", "yaw": 0},
+  "tank3": {"path": "models/units/Tank3.obj", "recolor": "replace", "yaw": 0},
+  "howitzer": {"path": "models/units/howitzer.glb", "recolor": "cimpletoon", "yaw": 0, "colors": {"metal barrel": "primary", "wheels": "dark", "bolt": "secondary"}},
+  "artillery1": {"path": "models/units/artillery1.glb", "recolor": "cimpletoon", "yaw": 180, "colors": {"metal": "primary", "barrel": "dark", "cannon ball": "dark"}},
+  "marines01": {"path": "models/units/marines01.glb", "recolor": "cimpletoon", "yaw": -90, "noAlign": true},
+  "craft_miner": {"path": "models/units/craft_miner.glb", "recolor": "kenneySpace", "yaw": 0},
+  "hangar_largeA": {"path": "models/buildings/hangar_largeA.glb", "recolor": "kenneySpace", "yaw": 0},
+  "generator": {"path": "models/buildings/machine_generatorLarge.glb", "recolor": "kenneySpace", "yaw": 0},
+  "tank_large": {"path": "models/buildings/detail-tank-large.glb", "recolor": "colormap", "yaw": 0},
+  "building_c": {"path": "models/buildings/building-c.glb", "recolor": "colormap", "yaw": 0},
+  "building_k": {"path": "models/buildings/building-k.glb", "recolor": "colormap", "yaw": 0},
+  "building_a": {"path": "models/buildings/building-a.glb", "recolor": "colormap", "yaw": 0},
+  "building_f": {"path": "models/buildings/building-f.glb", "recolor": "colormap", "yaw": 0},
+  "turret_double": {"path": "models/buildings/turret_double.glb", "recolor": "kenneySpace", "yaw": 0},
+  "tree_pine": {"path": "models/nature/tree_pineDefaultA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 6.0},
+  "tree_pineTall": {"path": "models/nature/tree_pineTallA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 7.5},
+  "tree_oak": {"path": "models/nature/tree_oak.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 6.0},
+  "tree_default": {"path": "models/nature/tree_default.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 6.0},
+  "rock_large": {"path": "models/nature/rock_largeA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 3.0},
+  "rock_tall": {"path": "models/nature/rock_tallA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 3.0}
+}
