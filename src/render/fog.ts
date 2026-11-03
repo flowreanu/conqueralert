@@ -18,13 +18,15 @@ class FogPlugin extends MaterialPluginBase {
   }
   getClassName() { return "FogPlugin"; }
   isCompatible(shaderLanguage: number) { return shaderLanguage === 0; } // doar GLSL (WebGL)
-  prepareDefines(defines: Record<string, unknown>) { defines.FOGOFWAR = !!fogTexture; }
+  /** doar în scena jocului (nu și în scena separată a pictogramelor) */
+  private get active() { return !!fogTexture && fogTexture.getScene() === this._material.getScene(); }
+  prepareDefines(defines: Record<string, unknown>) { defines.FOGOFWAR = this.active; }
   getSamplers(samplers: string[]) { samplers.push("fogSampler"); }
   getUniforms() {
     return { ubo: [{ name: "fogWorld", size: 2, type: "vec2" }], fragment: "#ifdef FOGOFWAR\nuniform vec2 fogWorld;\n#endif\n" };
   }
   bindForSubMesh(ubo: { updateFloat2(n: string, x: number, y: number): void; setTexture(n: string, t: unknown): void }) {
-    if (!fogTexture) return;
+    if (!this.active) return;
     ubo.updateFloat2("fogWorld", fogWorld[0], fogWorld[1]);
     ubo.setTexture("fogSampler", fogTexture);
   }

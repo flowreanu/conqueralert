@@ -8,7 +8,7 @@
 - [x] S4: bot + ceață + victorie + meniu + deploy → **Demo v0.1**
 - [x] S4.1: echilibrare (infanterie, bot Ușor, urmărire, minereu)
 - [x] S4.2: aspect vizual — drumuri, orășele, texturi de teren, V3, recoltor nou
-- [ ] UI (următorul pas cerut de Andrei)
+- [x] UI: sidebar nou, pictograme 3D, steaguri, sunet și muzică
 - [ ] S5: facțiunea Japonia
 
 ## Ce s-a făcut în S1
@@ -98,7 +98,21 @@ Andrei a urcat în `assets_src/` patru kituri Kenney (Car Kit, City Kit Roads / 
 - Testele de mișcare / luptă caută acum teren liber (pe hartă sunt și orășele); 60 de teste trec. Meciuri bot contra bot după schimbări: Greu bate Ușor, oglinzile ~egale.
 - Idei pentru mai departe: clădiri civile distructibile / ocupabile de infanterie (ca în RA2), mașini civile care se pot strivi, poduri distructibile.
 
+## UI + sunet (după S4.2)
+Andrei a trimis o schiță de UI (panouri metalice, credite aurii, radar, pictograme 3D izometrice). Am păstrat stilul, dar cu layout-ul compact din RA2: o singură coloană îngustă (276 px), grilă de 2 coloane, un singur indicator de progres.
+- **Sidebar** (`src/ui/sidebar.ts`, `src/style.css`): rame teșite (`clip-path`), accente cyan / auriu, font condensat; antet cu logo + **steagul facțiunii** + buton de sunet; credite mari aurii + bara de energie „segmentată”; **radar** = minimap-ul real cu grilă, cercuri, rază care se rotește și colțuri cyan; taburi cu tabul activ în culoarea facțiunii; „cameo”-uri pe o placă de tip hologramă.
+- **Pictograme 3D** (`src/render/icons.ts`): la începutul meciului, fiecare clădire / unitate a facțiunii e randată într-o scenă separată (același Engine, cameră ortografică izometrică, fundal transparent, `CreateScreenshotUsingRenderTargetAsync`) și înlocuiește desenul SVG. Pluginul de ceață se aplică acum doar în scena jocului (`FogPlugin.active`).
+- **Steaguri** (`src/ui/flags.ts`, SVG): SUA și URSS, în sidebar, pe cardurile din meniu și pe ecranul de final.
+- **Meniu / pauză / final** în aceeași temă; glisoare de volum (muzică / efecte) în meniu și în pauză; **M** = sunet pornit/oprit. Setările se țin minte (`localStorage`, `ca-audio`).
+- **Sunet** (`src/audio/`), totul sintetizat cu WebAudio (fără fișiere, fără licențe):
+  - `audio.ts` — motorul: magistrale muzică / efecte, compresor, reverb generat, efecte cu limită de repetare (nu „explodează” la 30 de puști). Efecte: 2 tipuri de pușcă, tunuri, turelă, obuzier, lansare V3, explozii mici / mari / clădire, moarte infanterie, confirmări de ordin, click-uri, „construcție gata”, „unitate pregătită”, alarmă la atac, vânzare, plasare, eroare, fanfară de victorie / înfrângere.
+  - `gameSounds.ts` — efectele bătăliei poziționate față de centrul camerei (volum după distanță, stânga/dreapta), mai încet în ceață.
+  - `music.ts` — un „band” sintetizat (tobe, chitară distorsionată, bas, alămuri, cor) și două piese originale: **SUA „Freedom Drive”** (rock, 132 BPM, Re minor, 28 de măsuri: intro / A / A' cu alămuri / B / break) și **URSS „Steel March”** (marș industrial, 112 BPM, Do minor, toba mare pe fiecare timp, „nicovală”, cor, corn; 30 de măsuri). În meniu se aude piesa facțiunii selectate.
+  - Muzică proprie: dacă pui `public/audio/music_usa.mp3` / `music_ussr.mp3`, se folosesc fișierele (vezi `public/audio/README.md`).
+- Verificat în Chromium headless: meniu, joc, pauză, pictograme (toate 7 generate), contextul audio pornește după primul click și muzica are semnal. 60 de teste trec.
+
 ## Note pentru sesiunea următoare (S5 — Japonia)
+- Japonia mai are nevoie de: steag în `flags.ts` (există deja un placeholder), o piesă în `SONGS` (`music.ts`), sunete de armă în `FIRE` (`gameSounds.ts`).
 - Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `tank` / `support` / `economy`).
 - Harta are doar 2 baze (vest/est) → pentru SUA vs Japonia sau URSS vs Japonia, `createMatchWorld` trebuie să atribuie bazele după index, nu după facțiune.
 - Pentru redeploy pe Pages: `npm run build -- --base=/conqueralert/` și push al `dist/` pe `gh-pages` (vezi README).

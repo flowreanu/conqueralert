@@ -41,3 +41,4 @@ export { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase
 export { RegisterMaterialPlugin } from "@babylonjs/core/Materials/materialPluginManager";
 export { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 export { Texture } from "@babylonjs/core/Materials/Textures/texture";
+export { CreateScreenshotUsingRenderTargetAsync } from "@babylonjs/core/Misc/screenshotTools";

@@ -6,6 +6,8 @@ import { EntityRenderer } from "../render/entities";
 import { RtsCamera } from "../render/camera";
 import { InputController } from "./input";
 import { Vis, Vision } from "../sim/vision";
+import { audio } from "../audio/audio";
+import { flagSvg } from "./flags";
 
 const FACTIONS = factionsData as Record<string, { name: string; primary: string; secondary: string; dark: string }>;
 
@@ -37,6 +39,8 @@ const nameOf = (item: string) => BUILDING_DEFS[item]?.name ?? UNIT_DEFS[item]?.n
 export interface Sidebar {
   frame(): void;
   consume(events: SimEvent[]): void;
+  /** pictograma 3D generată pentru un element (înlocuiește desenul SVG) */
+  setIcon(item: string, url: string): void;
 }
 
 export function setupSidebar(world: World, view: EntityRenderer, input: InputController, cam: RtsCamera, player: number, vision: Vision | null = null): Sidebar {
@@ -45,14 +49,32 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
   const root = document.getElementById("sidebar")!;
   root.style.setProperty("--fc", fc.primary);
   root.innerHTML = `
-    <div class="sb-head"><span class="sb-title">ConquerAlert</span><span class="tag" style="--c:${fc.primary}">${fc.name}</span></div>
-    <div class="sb-credits"><span class="cur">$</span><span id="sb-credits">0</span></div>
-    <canvas id="minimap" width="192" height="192"></canvas>
-    <div class="sb-power"><div class="sb-power-bar"><div id="sb-power-use"></div><div id="sb-power-out"></div></div><span id="sb-power-txt"></span></div>
+    <div class="sb-head frame">
+      <span class="sb-title">ConquerAlert</span>
+      <span class="sb-fac" title="${fc.name}">${flagSvg(me.faction)}<b>${fc.name}</b></span>
+      <button class="sb-mute" id="sb-mute" title="Sunet (M)"></button>
+    </div>
+    <div class="sb-stats frame">
+      <div class="sb-credits"><span class="cur">$</span><span id="sb-credits">0</span></div>
+      <div class="sb-power"><span class="bolt">⚡</span><div class="sb-power-bar"><div id="sb-power-use"></div><div id="sb-power-out"></div></div><span id="sb-power-txt"></span></div>
+    </div>
+    <div class="sb-radar frame">
+      <canvas id="minimap" width="192" height="192"></canvas>
+      <div class="radar-grid"></div><div class="radar-sweep"></div>
+      <i class="br tl"></i><i class="br tr"></i><i class="br bl"></i><i class="br br2"></i>
+    </div>
     <div class="sb-tabs">${TABS.map((t) => `<button class="tab" data-cat="${t.cat}" title="${t.label}">${icon(t.icon)}<span>${t.label}</span></button>`).join("")}</div>
-    <div class="sb-grid" id="sb-grid"></div>
-    <div class="sb-info" id="sb-info"></div>
+    <div class="sb-grid frame" id="sb-grid"></div>
+    <div class="sb-info frame" id="sb-info"></div>
     <div class="sb-toast" id="sb-toast"></div>`;
+  const pics = new Map<string, string>();
+  const picFor = (it: string) => (pics.has(it) ? `<img class="pic" src="${pics.get(it)}" alt="" draggable="false">` : icon(iconFor(it)));
+  const muteBtn = document.getElementById("sb-mute")!;
+  const showMute = () => { muteBtn.textContent = audio.settings.muted ? "🔇" : "🔊"; muteBtn.classList.toggle("off", audio.settings.muted); };
+  const toggleMute = () => { audio.setVolumes({ muted: !audio.settings.muted }); showMute(); };
+  muteBtn.addEventListener("click", toggleMute);
+  window.addEventListener("keydown", (e) => { if (e.code === "KeyM" && !e.ctrlKey && !e.metaKey) toggleMute(); });
+  showMute();
   const creditsEl = document.getElementById("sb-credits")!;
   const grid = document.getElementById("sb-grid")!;
   const info = document.getElementById("sb-info")!;
@@ -71,7 +93,8 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
 
   // ─── notificări (gen EVA) ───
   let toastT = 0;
-  const say = (text: string, kind = "") => {
+  const say = (text: string, kind = "", sfx?: Parameters<typeof audio.play>[0]) => {
+    if (sfx) audio.play(sfx, 0.8);
     toast.textContent = text;
     toast.className = `sb-toast show ${kind}`;
     toastT = performance.now();
@@ -81,13 +104,13 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
   const renderGrid = () => {
     const items = itemsFor(world, player, cat);
     grid.innerHTML = items
-      .map((it) => `<button class="cameo" data-item="${it}">${icon(iconFor(it))}<span class="nm">${nameOf(it)}</span><span class="cost">$${costOf(it)}</span><div class="clock"></div><span class="count"></span><span class="st"></span></button>`)
+      .map((it) => `<button class="cameo" data-item="${it}">${picFor(it)}<span class="nm">${nameOf(it)}</span><span class="cost">$${costOf(it)}</span><div class="clock"></div><span class="count"></span><span class="st"></span></button>`)
       .join("");
     tabs.forEach((t) => t.classList.toggle("on", t.dataset.cat === cat));
     updateGrid();
   };
   const setTab = (c: Category) => { cat = c; renderGrid(); };
-  tabs.forEach((t) => t.addEventListener("click", () => setTab(t.dataset.cat as Category)));
+  tabs.forEach((t) => t.addEventListener("click", () => { audio.play("tab", 0.6); setTab(t.dataset.cat as Category); }));
 
   grid.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".cameo");
@@ -95,13 +118,15 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     const item = b.dataset.item!;
     const c = categoryOf(item)!;
     const q = eco().queues[c];
-    if (!availability(world, player, item).ok) { say(`Necesită: ${availability(world, player, item).missing.map(nameOf).join(", ")}`, "warn"); return; }
+    if (!availability(world, player, item).ok) { say(`Necesită: ${availability(world, player, item).missing.map(nameOf).join(", ")}`, "warn", "error"); return; }
     if (c === "structure" || c === "defense") {
-      if (q[0]?.type === item && q[0].ready) { input.startPlacing(input.placing === item ? null : item); return; }
-      if (q.length) { say("Se construiește deja altceva", "warn"); return; }
+      if (q[0]?.type === item && q[0].ready) { audio.play("click", 0.6); input.startPlacing(input.placing === item ? null : item); return; }
+      if (q.length) { say("Se construiește deja altceva", "warn", "error"); return; }
+      audio.play("click", 0.6);
       world.issue({ kind: "produce", player, item });
       return;
     }
+    audio.play("click", 0.6);
     const n = (e as MouseEvent).shiftKey ? 5 : 1;
     for (let i = 0; i < n; i++) world.issue({ kind: "produce", player, item });
   });
@@ -112,6 +137,7 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     const item = b.dataset.item!;
     if (input.placing === item) input.startPlacing(null);
     const n = e.shiftKey ? 5 : 1;
+    audio.play("tab", 0.5);
     for (let i = 0; i < n; i++) world.issue({ kind: "cancel", player, item });
   });
   input.onPlacingChange = () => updateGrid();
@@ -152,6 +178,7 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
     const id = view.selectedBuilding;
     if (!btn || !id) return;
+    audio.play("click", 0.6);
     if (btn.dataset.act === "repair") world.issue({ kind: "repair", player, buildingId: id });
     if (btn.dataset.act === "sell") {
       if (performance.now() - sellArm < 2500) { world.issue({ kind: "sell", player, buildingId: id }); sellArm = 0; view.selectedBuilding = 0; }
@@ -303,30 +330,36 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     const low = isLowPower(e);
     root.classList.toggle("low-power", low);
     powerTxt.textContent = `⚡ ${e.powerUse} / ${e.powerOut}`;
-    if (low && !wasLow) say("Energie insuficientă — producția încetinește", "warn");
+    if (low && !wasLow) say("Energie insuficientă — producția încetinește", "warn", "error");
     wasLow = low;
     const waiting = CATEGORIES.some((c) => { const it = e.queues[c][0]; return it && !it.ready; }) && e.credits < 1;
-    if (waiting && performance.now() - lastBroke > 12000) { say("Fonduri insuficiente", "warn"); lastBroke = performance.now(); }
+    if (waiting && performance.now() - lastBroke > 12000) { say("Fonduri insuficiente", "warn", "error"); lastBroke = performance.now(); }
   };
 
   renderGrid();
   return {
+    setIcon(item, url) {
+      pics.set(item, url);
+      const b = grid.querySelector<HTMLButtonElement>(`.cameo[data-item="${item}"]`);
+      const old = b?.querySelector(".ico, .pic");
+      if (old) old.outerHTML = picFor(item);
+    },
     consume(events) {
       for (const ev of events) {
         if (ev.kind === "ready" && ev.player === player) {
-          say(`${nameOf(ev.type)}: construcție finalizată — click pe pictogramă și plasează`, "ok");
+          say(`${nameOf(ev.type)}: construcție finalizată — click pe pictogramă și plasează`, "ok", "ready");
           // trece automat pe tabul clădirii gata de plasat
           const c = categoryOf(ev.type)!;
           if (c !== cat) setTab(c);
         }
-        if (ev.kind === "spawned" && ev.player === player) say(`${nameOf(ev.type)} pregătit`, "ok");
+        if (ev.kind === "spawned" && ev.player === player) say(`${nameOf(ev.type)} pregătit`, "ok", "unitReady");
         if (ev.kind === "placed" && ev.player === player) renderGrid();
-        if (ev.kind === "sold" && ev.player === player) { say(`${nameOf(ev.type)} vândută`); renderGrid(); }
+        if (ev.kind === "sold" && ev.player === player) { say(`${nameOf(ev.type)} vândută`, "", "sell"); renderGrid(); }
         if (ev.kind === "death" && ev.entity === "building") renderGrid();
         if (ev.kind === "hit" && ev.player === player && performance.now() - lastAlert > 15000) {
           lastAlert = performance.now();
           alertAt = { x: ev.x, z: ev.z, t: lastAlert };
-          say(world.units.has(ev.id) ? "Recoltorul este atacat!" : "Baza este atacată!", "warn");
+          say(world.units.has(ev.id) ? "Recoltorul este atacat!" : "Baza este atacată!", "warn", "alarm");
         }
         if (ev.kind === "defeated" && ev.player !== player) say("Inamicul a fost învins!", "ok");
       }

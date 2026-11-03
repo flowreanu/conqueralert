@@ -4,7 +4,10 @@ import { Bot } from "./sim/bot";
 import { Vision } from "./sim/vision";
 import { FogRenderer, registerFogPlugin } from "./render/fog";
 import { GameSettings, createPauseMenu, showEndScreen, showMenu } from "./ui/menu";
-import { DT, TICK_RATE, UNIT_DEFS } from "./sim/world";
+import { BUILDING_DEFS, Command, DT, TICK_RATE, UNIT_DEFS } from "./sim/world";
+import { audio } from "./audio/audio";
+import { createGameSounds } from "./audio/gameSounds";
+import { renderIcons } from "./render/icons";
 import { ModelLibrary } from "./render/models";
 import { buildTerrain } from "./render/terrain";
 import { buildProps } from "./render/props";
@@ -83,6 +86,24 @@ async function boot(settings: GameSettings) {
   input.onSelectionChange = () => hud.update();
   view.onSelectionPruned = () => hud.update();
   const sidebar = setupSidebar(world, view, input, cam, PLAYER, settings.fog ? vision : null);
+  // pictogramele 3D ale sidebar-ului (din modelele reale, în culorile facțiunii)
+  const iconItems = [
+    ...Object.keys(BUILDING_DEFS).filter((k) => BUILDING_DEFS[k].buildable !== false),
+    ...Object.keys(UNIT_DEFS).filter((k) => UNIT_DEFS[k].faction === settings.faction),
+  ];
+  void renderIcons(engine, settings.faction, iconItems, (item, url) => sidebar.setIcon(item, url));
+
+  // sunet: muzica facțiunii + efectele bătăliei + confirmarea ordinelor
+  audio.playMusic(settings.faction);
+  const sounds = createGameSounds(world, cam.target, settings.fog ? vision : null, PLAYER);
+  const issue = world.issue.bind(world);
+  world.issue = (c: Command) => {
+    if (c.player === PLAYER) {
+      if (c.kind === "move" || c.kind === "amove") audio.play("ack", 0.7);
+      if (c.kind === "attack") audio.play("ackAttack", 0.7);
+    }
+    return issue(c);
+  };
 
   // pauză / final de meci
   let paused = false;
@@ -105,7 +126,7 @@ async function boot(settings: GameSettings) {
     if (!paused) acc += dt;
     while (acc >= DT) {
       world.step();
-      fx.consume(world.events); view.consume(world.events); sidebar.consume(world.events);
+      fx.consume(world.events); view.consume(world.events); sidebar.consume(world.events); sounds.consume(world.events);
       if (world.tick % 4 === 0) vision.update();
       acc -= DT;
     }
@@ -114,6 +135,8 @@ async function boot(settings: GameSettings) {
       ended = true;
       setPaused(false);
       vision.update();
+      audio.stopMusic(1);
+      audio.play(world.winner === PLAYER ? "victory" : "defeat", 1);
       showEndScreen(world, PLAYER, world.tick / TICK_RATE, settings);
     }
     fog?.update(dt);
