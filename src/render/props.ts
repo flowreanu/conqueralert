@@ -26,6 +26,7 @@ export async function buildProps(scene: Scene, lib: ModelLibrary, m: GameMap, sh
         mesh.rotationQuaternion = Quaternion.Identity();
         mesh.scaling.setAll(1);
         mesh.isPickable = false;
+        mesh.isVisible = true;
         const mats = list.map((p) =>
           rel.multiply(Matrix.Compose(new Vector3(p.scale, p.scale, p.scale), Quaternion.RotationAxis(Vector3.Up(), p.rot), new Vector3(p.x, 0, p.z))),
         );

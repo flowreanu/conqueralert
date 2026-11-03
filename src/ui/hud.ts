@@ -4,12 +4,11 @@ import { EntityRenderer } from "../render/entities";
 
 const FACTIONS = factionsData as Record<string, { name: string; primary: string }>;
 
-/** HUD minimal (sidebar-ul complet vine în S3). */
+/** HUD-ul de sus (forțe, FPS) și lista selecției; economia e în sidebar. */
 export function setupHud(world: World, view: EntityRenderer) {
   const top = document.getElementById("hud-top")!;
   const selEl = document.getElementById("hud-sel")!;
-  const me = world.players[0];
-  top.innerHTML = `<b>ConquerAlert</b> <span class="tag" style="--c:${FACTIONS[me.faction].primary}">${FACTIONS[me.faction].name}</span> <span id="forces"></span> <span id="fps"></span>`;
+  top.innerHTML = `<span id="forces"></span> <span id="fps"></span>`;
   const fpsEl = document.getElementById("fps")!;
   const forcesEl = document.getElementById("forces")!;
   let frames = 0;

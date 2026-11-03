@@ -17,9 +17,14 @@
   "tree_pineTall": {"path": "models/nature/tree_pineTallA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 7.5},
   "tree_oak": {"path": "models/nature/tree_oak.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 6.0},
   "tree_default": {"path": "models/nature/tree_default.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 6.0},
-  "rock_large": {"path": "models/nature/rock_largeA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 3.0},
-  "rock_tall": {"path": "models/nature/rock_tallA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 3.0},
+  "rock_large": {"path": "models/nature/rock_largeA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 0.85},
+  "rock_tall": {"path": "models/nature/rock_tallA.glb", "recolor": "none", "yaw": 0, "noAlign": true, "height": 2.4},
   "q_tank2": {"path": "models/units/q_Tank2.glb", "recolor": "quaternius", "yaw": 0},
   "q_tank": {"path": "models/units/q_Tank.glb", "recolor": "quaternius", "yaw": 0},
-  "q_suv": {"path": "models/units/q_SUV.glb", "recolor": "quaternius", "yaw": 0, "colors": {"white": "primary", "grey": "secondary", "black": "dark", "windows": "glass", "headlights": "none", "taillights": "none"}}
+  "q_suv": {"path": "models/units/q_SUV.glb", "recolor": "quaternius", "yaw": 0, "colors": {"white": "primary", "grey": "secondary", "black": "dark", "windows": "glass", "headlights": "none", "taillights": "none"}},
+  "toon_soldier": {"path": "models/units/toon_soldier.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "animated": true, "colors": {"character_main": "primary", "pants": "dark", "shoulderpad": "secondary"}},
+  "toon_enemy": {"path": "models/units/toon_enemy.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "animated": true, "colors": {"enemy_red": "primary"}},
+  "toon_hazmat": {"path": "models/units/toon_hazmat.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "animated": true, "colors": {"hazmat_main": "primary"}},
+  "turret_gun5": {"path": "models/buildings/turret_Gun_5.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "colors": {"light": "primary", "dark": "dark"}},
+  "turret_cannon4": {"path": "models/buildings/turret_Cannon_4.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "colors": {"light": "primary", "dark": "dark"}}
 }

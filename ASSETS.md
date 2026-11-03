@@ -9,6 +9,8 @@
 | `units/zeppelin` | „Zeppelin” (opengameart.org) — convertit din .blend | CC0 |
 | `units/mech_*` | Quaternius — Animated Mech Pack (opengameart.org) — convertite din .blend | CC0 |
 | `units/q_Tank*.glb`, `units/q_SUV.glb` | Quaternius — Tank Pack, Car Pack (quaternius.com) — convertite din .obj cu `obj2gltf` | CC0 |
+| `units/toon_soldier.glb`, `toon_enemy.glb`, `toon_hazmat.glb` | Quaternius — Toon Shooter Game Kit (quaternius.com) — din .gltf, păstrate doar arma AK/SMG și animațiile Idle, Walk, Run_Gun, Idle_Shoot, Death | CC0 |
+| `buildings/turret_Gun_5.glb`, `turret_Cannon_4.glb` | Quaternius — Turrets pack — convertite din .obj cu `obj2gltf` | CC0 |
 | `units/Tank3.obj`, `AntiAirTank2.obj` | „Abstract RTS Model Pack” (opengameart.org) | CC0 |
 
 Credit opțional: Kenney.nl, Quaternius.

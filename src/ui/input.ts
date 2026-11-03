@@ -1,5 +1,6 @@
 import { Color3, Matrix, Mesh, MeshBuilder, Scene, StandardMaterial, TargetCamera, Vector3 } from "../render/babylon";
-import { UNIT_DEFS, World, entityRadius } from "../sim/world";
+import { BUILDING_DEFS, UNIT_DEFS, World, entityRadius } from "../sim/world";
+import { buildingCells, placementCells } from "../sim/economy";
 
 const ATTACK_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><g fill="none" stroke="#ff3b30" stroke-width="2.5"><circle cx="16" cy="16" r="9"/><path d="M16 2v9M16 21v9M2 16h9M21 16h9"/></g></svg>',
@@ -22,6 +23,13 @@ export class InputController {
   private lastGroup = { key: "", t: 0 };
   private lastClick = { t: 0, id: 0 };
   onSelectionChange: () => void = () => {};
+  /** clădirea gata de plasat (modul „fantomă”) */
+  placing: string | null = null;
+  private ghost: Mesh[] = [];
+  private ghostOk: StandardMaterial;
+  private ghostBad: StandardMaterial;
+  private ghostCell: { cx: number; cy: number } | null = null;
+  onPlacingChange: () => void = () => {};
 
   constructor(
     private scene: Scene,
@@ -51,6 +59,25 @@ export class InputController {
     this.attackMarker.isPickable = false;
     this.attackMarker.setEnabled(false);
 
+    const gm = (hex: string) => {
+      const m = new StandardMaterial(`ghost-${hex}`, scene);
+      m.emissiveColor = Color3.FromHexString(hex);
+      m.diffuseColor = Color3.Black();
+      m.disableLighting = true;
+      m.alpha = 0.45;
+      return m;
+    };
+    this.ghostOk = gm("#5dff6a");
+    this.ghostBad = gm("#ff3b30");
+    const cs = world.map.cellSize;
+    for (let i = 0; i < 16; i++) {
+      const g = MeshBuilder.CreateGround(`ghost${i}`, { width: cs * 0.94, height: cs * 0.94 }, scene);
+      g.isPickable = false;
+      g.material = this.ghostOk;
+      g.setEnabled(false);
+      this.ghost.push(g);
+    }
+
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
     window.addEventListener("pointermove", (e) => this.onMove(e));
@@ -60,7 +87,44 @@ export class InputController {
 
   private get sel() { return this.view.selected; }
 
+  startPlacing(type: string | null) {
+    this.placing = type;
+    if (!type) { for (const g of this.ghost) g.setEnabled(false); this.ghostCell = null; }
+    this.onPlacingChange();
+  }
+
+  private updateGhost(cx: number, cy: number) {
+    const type = this.placing!;
+    const n = buildingCells(type);
+    const p = this.groundPoint(cx, cy);
+    if (!p) return;
+    const cs = this.world.map.cellSize;
+    const gx = Math.floor(p.x / cs - n / 2 + 0.5), gy = Math.floor(p.z / cs - n / 2 + 0.5);
+    this.ghostCell = { cx: gx, cy: gy };
+    const cells = placementCells(this.world, this.player, type, gx, gy);
+    this.ghost.forEach((g, i) => {
+      const c = cells[i];
+      g.setEnabled(!!c);
+      if (!c) return;
+      g.position.set((c.x + 0.5) * cs, 0.12, (c.y + 0.5) * cs);
+      g.material = c.ok ? this.ghostOk : this.ghostBad;
+    });
+  }
+
+  private tryPlace() {
+    if (!this.placing || !this.ghostCell) return;
+    const { cx, cy } = this.ghostCell;
+    if (!placementCells(this.world, this.player, this.placing, cx, cy).every((c) => c.ok)) return;
+    this.world.issue({ kind: "place", player: this.player, item: this.placing, cx, cy });
+    this.startPlacing(null);
+  }
+
   private onDown(e: PointerEvent) {
+    if (this.placing) {
+      if (e.button === 0) { this.updateGhost(e.clientX, e.clientY); this.tryPlace(); }
+      else if (e.button === 2) this.startPlacing(null);
+      return;
+    }
     if (e.button === 0) {
       this.down = { x: e.clientX, y: e.clientY };
     } else if (e.button === 2) {
@@ -69,6 +133,11 @@ export class InputController {
   }
 
   private onMove(e: PointerEvent) {
+    if (this.placing) {
+      if (e.target === this.canvas) this.updateGhost(e.clientX, e.clientY);
+      this.canvas.style.cursor = "default";
+      return;
+    }
     if (this.down) {
       const x0 = Math.min(this.down.x, e.clientX), y0 = Math.min(this.down.y, e.clientY);
       const w = Math.abs(e.clientX - this.down.x), h = Math.abs(e.clientY - this.down.y);
@@ -80,7 +149,9 @@ export class InputController {
       this.cam.edgeScroll = true;
       const own = this.pickUnit(e.clientX, e.clientY);
       const enemy = own ? 0 : this.pickEnemy(e.clientX, e.clientY);
-      this.view.hovered = own || enemy;
+      const ownB = own || enemy ? 0 : this.pickOwnBuilding(e.clientX, e.clientY);
+      this.view.hovered = own || enemy || ownB;
+      if (ownB && !this.sel.size) { this.canvas.style.cursor = "pointer"; return; }
       this.canvas.style.cursor = own ? "pointer" : enemy && this.sel.size ? ATTACK_CURSOR : this.sel.size ? "crosshair" : "default";
     }
   }
@@ -106,13 +177,18 @@ export class InputController {
       } else if (id) {
         if (additive && this.sel.has(id)) { this.sel.delete(id); this.onSelectionChange(); }
         else this.setSelection([id], additive);
-      } else if (!additive) this.setSelection([], false);
+      } else {
+        const b = this.pickOwnBuilding(e.clientX, e.clientY);
+        if (b) { this.sel.clear(); this.view.selectedBuilding = b; this.onSelectionChange(); }
+        else if (!additive) this.setSelection([], false);
+      }
       this.lastClick = { t: now, id };
     }
   }
 
   private onKey(e: KeyboardEvent) {
-    if (e.code === "Escape") this.setSelection([], false);
+    if (e.target instanceof HTMLInputElement) return;
+    if (e.code === "Escape") { if (this.placing) this.startPlacing(null); else this.setSelection([], false); }
     if (e.code === "KeyX" && this.sel.size) this.world.issue({ kind: "stop", player: this.player, unitIds: [...this.sel] });
     const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
     if (digit) {
@@ -135,13 +211,25 @@ export class InputController {
     }
   }
 
-  private setSelection(ids: number[], additive: boolean) {
+  setSelection(ids: number[], additive: boolean) {
     if (!additive) this.sel.clear();
+    this.view.selectedBuilding = 0;
     for (const id of ids) this.sel.add(id);
     this.onSelectionChange();
   }
 
   private command(cx: number, cy: number) {
+    const sb = this.view.selectedBuilding;
+    if (!this.sel.size && sb) {
+      // clădire de producție selectată: click dreapta = punct de adunare
+      const b = this.world.buildings.get(sb);
+      const p = this.groundPoint(cx, cy);
+      if (b && p && BUILDING_DEFS[b.type].produces) {
+        this.world.issue({ kind: "rally", player: this.player, buildingId: sb, x: p.x, z: p.z });
+        this.flashMarker(p.x, p.z);
+      }
+      return;
+    }
     if (!this.sel.size) return;
     const enemy = this.pickEnemy(cx, cy);
     if (enemy) {
@@ -156,9 +244,32 @@ export class InputController {
     const p = this.groundPoint(cx, cy);
     if (!p) return;
     this.world.issue({ kind: "move", player: this.player, unitIds: [...this.sel], x: p.x, z: p.z });
-    this.marker.position.set(p.x, 0.15, p.z);
+    this.flashMarker(p.x, p.z);
+  }
+
+  /** Ordin de mișcare din minimap. */
+  commandAt(x: number, z: number) {
+    if (!this.sel.size) return;
+    this.world.issue({ kind: "move", player: this.player, unitIds: [...this.sel], x, z });
+    this.flashMarker(x, z);
+  }
+
+  private flashMarker(x: number, z: number) {
+    this.marker.position.set(x, 0.15, z);
     this.marker.setEnabled(true);
     this.markerT = 0;
+  }
+
+  /** Clădire proprie sub cursor. */
+  private pickOwnBuilding(cx: number, cy: number): number {
+    const p = this.groundPoint(cx, cy);
+    if (!p) return 0;
+    const cs = this.world.map.cellSize;
+    for (const b of this.world.buildings.values()) {
+      if (b.owner !== this.player) continue;
+      if (p.x >= b.cx * cs && p.x <= (b.cx + b.cells) * cs && p.z >= b.cy * cs && p.z <= (b.cy + b.cells) * cs) return b.id;
+    }
+    return 0;
   }
 
   /** Animația markerului de mișcare (se strânge și dispare). */

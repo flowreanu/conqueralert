@@ -4,7 +4,7 @@
 - [x] S0: concept, vizualizări, alegerea stack-ului (Babylon.js), asset-uri CC0 descărcate și convertite în `.glb` în `public/models/`
 - [x] S1: setup + cameră + selecție + mișcare
 - [x] S2: pathfinding + separare + luptă
-- [ ] S3: economie + construcție + producție + sidebar
+- [x] S3: economie + construcție + producție + sidebar
 - [ ] S4: bot + ceață + victorie + meniu + deploy → **Demo v0.1**
 
 ## Ce s-a făcut în S1
@@ -36,22 +36,43 @@
 - **Modele noi** (Quaternius, CC0, convertite OBJ → GLB cu `obj2gltf`): Liberty = `q_Tank2`, Ursus = `q_Tank` (se recolorează: Main / Main_Light / Main_Dark / Main_Details / Wheels → culorile facțiunii), Recoltor = `q_SUV` (provizoriu).
 - 24 de teste (A* peste pod, ocolirea pădurii, separare, multiplicatori, atac, auto-țintire, tanc vs. infanterie, rază minimă, explozie cu rază, distrugerea clădirii + turelă, determinism cu luptă).
 
-## Note pentru sesiunea următoare (S3)
-- Economie: minereu pe celulele `Terrain.Ore` (cantitate per celulă), recoltorul (are deja HP și nu luptă) merge la câmp → rafinărie → credite.
-- Plasare clădiri pe grid (`World.placeBuilding` există; apelează deja `paths.invalidate()`), energie, cozi de producție, sidebar RA2.
-- Unitățile produse ies din Barăci / Fabrică — punct de adunare.
-- Idei rămase din S2: attack-move (tastă dedicată; A e ocupat de cameră), turnulețe care se rotesc separat de șasiu (modelele sunt contopite într-un singur mesh acum), sunet (S7).
+## Ce s-a făcut în S3
+- **Economie** (`src/sim/economy.ts`, totul prin comenzi → determinist, pregătit pentru lockstep):
+  - minereu per celulă (`map.ore`, 200–500 credite/celulă, mai bogat spre centrul câmpului; crește înapoi foarte încet: +2 la 20 s);
+  - recoltor cu stări `toOre → mining → toRef → unload` (1000 capacitate, 125 cr/s recoltare, 400 cr/s descărcare), BFS spre cel mai apropiat minereu, se întoarce unde a rămas, coadă la docul rafinăriei. Click dreapta pe minereu = recoltează, pe rafinăria proprie = descarcă, mișcare simplă = se oprește din lucru (X = stop). ≈ 1000 credite / 20 s per recoltor la câmpul de lângă bază;
+  - credite: start 5000; afișaj care „curge” spre valoare, ca în RA2;
+  - energie: Centrala +100 (proporțional cu viața), Rafinăria −40, Barăcile −20, Fabrica −40, Turela −30. Sub necesar: producția la 50% și turelele nu mai trag;
+  - 4 cozi (Clădiri, Apărare, Infanterie, Vehicule), costul se plătește progresiv (timp = cost / 75 cr/s, minim 3 s); fără bani coada așteaptă; clădirile se opresc la „GATA” până le plasezi; unitățile: până la 15 în coadă (Shift+click = ×5), click dreapta = anulează (banii se returnează);
+  - cerințe: Centrală → Rafinărie / Barăci → Fabrică (Rafinărie + Barăci) → Turelă (Barăci); unitățile cer clădirea producătoare (dacă e distrusă, coada stă);
+  - plasare pe grid: doar lângă baza proprie (≤ 6 celule de o clădire), nu pe apă / pod / minereu / copaci / unități;
+  - Rafinăria vine cu un recoltor gratuit; unitățile ies prin fața clădirii și merg la punctul de adunare;
+  - vânzare (50% din cost × viață, cu confirmare) și reparare (3%/s, costă 50% din cost pentru 100%).
+- **Sidebar RA2** (`src/ui/sidebar.ts`): credite, minimap (click/drag = cameră, click dreapta = mută selecția, trapezul vizibil al camerei), bara de energie, 4 taburi cu indicator „în lucru / gata”, pictograme SVG cu ceas de progres, procent, „GATA”/„PLASEAZĂ”/„FONDURI”, panou pentru clădirea selectată (Repară / Vinde) sau recoltor (încărcătură, stare), notificări (construcție gata, unitate pregătită, energie insuficientă, fonduri insuficiente).
+- **Hartă/interacțiune**: „fantoma” de plasare cu celule verzi/roșii; click pe clădire proprie = selecție (cadru verde); click dreapta cu Barăci/Fabrică selectate = punct de adunare (steag).
+- **Randare**: unitățile/clădirile noi apar automat; clădirile plasate „cresc” din fundație; cristale de minereu (thin instances) care se micșorează pe măsură ce sunt recoltate; turelele se rotesc spre țintă.
+- **Asset-uri noi** (Quaternius, CC0): Ranger = `toon_soldier`, Conscript = `toon_enemy` (Toon Shooter, **animați**: Idle / Run_Gun / Idle_Shoot / Death — siluete diferite, moartea se vede); turele `turret_Gun_5` (SUA) și `turret_Cannon_4` (URSS) din pachetul Turrets. Convertite cu `@gltf-transform` (doar arma AK + 5 animații păstrate) și `obj2gltf`. `toon_hazmat.glb` e pregătit pentru un viitor inginer.
+- **Reparat**: copacii/stâncile erau invizibili (șabloanele ascunse erau clonate tot ascunse); stâncile erau de ~4× prea mari față de celula pe care o blochează.
+- **Robustețe**: dacă un model lipsește, se folosește o formă low-poly provizorie (jocul nu se mai blochează la încărcare).
+- **Scenariu** (`createSkirmishWorld`): SUA pornește doar cu Centrul de Construcție + 2 Liberty + 3 Rangeri + 5000 $; URSS are baza completă (2 turele) și recoltorul la lucru, dar nu construiește nimic (botul vine în S4). `createDemoWorld` (S2) rămâne pentru teste.
+- 42 de teste (18 noi: recoltare, epuizare, ordine manuale, cerințe, cost progresiv, plasare validă/invalidă, recoltor gratuit, producție + punct de adunare, anulare, lipsă de bani, energie insuficientă, vânzare, reparare, determinism cu economie).
+
+## Note pentru sesiunea următoare (S4)
+- Botul poate folosi exact aceleași comenzi ca jucătorul (`produce`, `place` cu `canPlace`, `move`, `attack`) — nimic special în simulare.
+- Ceață de război: `sight` există pe unități și turelă; minimap-ul și `pickEnemy` trebuie filtrate după vizibilitate.
+- Victorie: un jucător pierde când nu mai are clădiri (sau clădiri + unități).
+- Meniu: alegerea facțiunii → `createSkirmishWorld` cu facțiunile inversate (baza URSS e deja la est).
+- Idei rămase: attack-move, MCV (Centrul de Construcție mobil), clădiri care „clipesc” la energie insuficientă, sunet (S7).
 
 ## Asset-uri Google Drive (folderul `Game_Assets`, id `1P1ejCJeLKS07emjhAMhW3KSCczENVXzu`)
 - ✅ `…124331Z…` (Tank Pack) și `…124642Z…` (Car Pack) — integrate în S2.
-- ❌ `…124408Z…` (9 MB, Turrets) și `…124508Z…` (21,6 MB, Toon Shooter) — conectorul Google Drive nu poate descărca fișiere peste ~5–10 MB. **Andrei:** urcă-le direct în repo (de ex. `assets-src/`) sau împarte-le în arhive < 4 MB, și le integrez în S3 (Turelă, Ranger/Conscript cu siluete diferite).
+- ✅ Turrets și Toon Shooter — urcate de Andrei în `assets_src/`, integrate în S3.
 - `Sci-Fi Essentials Kit[Standard].zip` (167 MB) — pentru Japonia (S5); aceeași problemă de mărime.
 
 ## Probleme cunoscute / provizorii
 - Katiușa (`artillery1`) e un tun vechi cu roți — provizoriu.
 - Recoltorul e acum un SUV (`q_SUV`) — măcar e vehicul de sol, dar nu arată a utilaj minier; de înlocuit când găsim un camion.
-- Infanteria are aceeași siluetă pentru Ranger și Conscript (diferă doar culorile) — se rezolvă cu Toon Shooter.
-- Turela de bază nu se rotește vizual spre țintă (trage corect în simulare).
+- Ambele facțiuni au aceleași modele pentru Centrală / Rafinărie / Barăci / Centrul de Construcție (diferă fundația colorată).
+- Recoltorul descarcă oriunde lângă docul rafinăriei (nu „intră” în clădire).
 - Liberty și Ursus vin din același pachet → silueta e asemănătoare; diferă prin mărime (5,5 vs 6,5 m) și culoare.
 
 ## Feedback de la Andrei

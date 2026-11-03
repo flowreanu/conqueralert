@@ -1,5 +1,5 @@
 import { Color3, DirectionalLight, Engine, HemisphericLight, ImageProcessingConfiguration, Scene, ShadowGenerator, Vector3 } from "./render/babylon";
-import { createDemoWorld } from "./sim/scenario";
+import { createSkirmishWorld } from "./sim/scenario";
 import { DT, UNIT_DEFS } from "./sim/world";
 import { ModelLibrary } from "./render/models";
 import { buildTerrain } from "./render/terrain";
@@ -9,6 +9,8 @@ import { EntityRenderer } from "./render/entities";
 import { EffectsRenderer } from "./render/effects";
 import { InputController } from "./ui/input";
 import { setupHud } from "./ui/hud";
+import { setupSidebar } from "./ui/sidebar";
+import { OreRenderer } from "./render/ore";
 import "./style.css";
 
 async function boot() {
@@ -21,7 +23,7 @@ async function boot() {
   scene.imageProcessingConfiguration.exposure = 1.0;
   scene.imageProcessingConfiguration.contrast = 1.15;
 
-  const world = createDemoWorld();
+  const world = createSkirmishWorld();
   const map = world.map;
   const W = map.width * map.cellSize, H = map.height * map.cellSize;
 
@@ -50,6 +52,7 @@ async function boot() {
   const lib = new ModelLibrary(scene);
   const view = new EntityRenderer(scene, lib, world, shadows);
   const fx = new EffectsRenderer(scene, world);
+  const ore = new OreRenderer(scene, map, shadows);
 
   const hud = setupHud(world, view);
   const loading = Promise.all([
@@ -63,6 +66,7 @@ async function boot() {
   const input = new InputController(scene, canvas, cam, world, view, 0);
   input.onSelectionChange = () => hud.update();
   view.onSelectionPruned = () => hud.update();
+  const sidebar = setupSidebar(world, view, input, cam, 0);
 
   let acc = 0;
   let last = performance.now();
@@ -71,18 +75,20 @@ async function boot() {
     const dt = Math.min(0.25, (now - last) / 1000);
     last = now;
     acc += dt;
-    while (acc >= DT) { world.step(); fx.consume(world.events); acc -= DT; }
+    while (acc >= DT) { world.step(); fx.consume(world.events); view.consume(world.events); sidebar.consume(world.events); acc -= DT; }
     cam.update(dt);
     input.update(dt);
-    view.sync(acc / DT);
+    view.sync(acc / DT, dt);
+    ore.update(dt);
     fx.update(dt, acc / DT);
     scene.render();
     hud.frame(engine.getFps());
+    sidebar.frame();
   });
   window.addEventListener("resize", () => engine.resize());
 
   // acces pentru teste automate în browser
-  (window as any).__ca = { world, view, cam, input, scene, fx, UNIT_DEFS };
+  (window as any).__ca = { world, view, cam, input, scene, fx, UNIT_DEFS, eco: await import("./sim/economy") };
 }
 
 boot().catch((e) => {

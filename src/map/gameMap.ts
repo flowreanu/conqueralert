@@ -43,7 +43,11 @@ export interface GameMap {
   bases: BaseSpot[];
   bridges: Bridge[];
   oreFields: { cx: number; cy: number; r: number }[];
+  /** minereu rămas per celulă (credite); 0 = epuizat */
+  ore: Uint16Array;
 }
+
+export const ORE_MAX = 500;
 
 export const idx = (m: GameMap, x: number, y: number) => y * m.width + x;
 export const inBounds = (m: GameMap, x: number, y: number) => x >= 0 && y >= 0 && x < m.width && y < m.height;
@@ -87,6 +91,7 @@ export function generateDeltaMap(seed = 1337): GameMap {
     ],
     bridges: [],
     oreFields: [],
+    ore: new Uint16Array(W * H),
   };
   const rng = makeRng(seed);
   const noise = makeNoise(seed);
@@ -144,7 +149,11 @@ export function generateDeltaMap(seed = 1337): GameMap {
         if (!inBounds(m, x, y)) continue;
         const d = Math.hypot(x + 0.5 - f.cx, y + 0.5 - f.cy) + (noise(x * 0.7, y * 0.7) - 0.5) * 1.6;
         const i = y * W + x;
-        if (d < f.r && m.terrain[i] === Terrain.Grass) m.terrain[i] = Terrain.Ore;
+        if (d < f.r && m.terrain[i] === Terrain.Grass) {
+          m.terrain[i] = Terrain.Ore;
+          // mai bogat spre centru: 200..500
+          m.ore[i] = Math.round(200 + 300 * Math.max(0, 1 - d / f.r));
+        }
       }
 
   // Zone fără decor: baze, capete de pod, minereu.

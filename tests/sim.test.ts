@@ -259,7 +259,8 @@ describe("simulare — luptă", () => {
 
   it("clădirea distrusă eliberează celulele; turela apără baza", () => {
     const w = arena();
-    const b = [...w.buildings.values()].find((x) => x.owner === 1 && x.type === "power")!;
+    // (nu centrala: fără ea baza ar rămâne fără energie și turela n-ar mai trage — S3)
+    const b = [...w.buildings.values()].find((x) => x.owner === 1 && x.type === "barracks")!;
     expect(isPassableCell(w.map, b.cx, b.cy)).toBe(false);
     w.damage(b, 1e6, "he", 0);
     expect(w.buildings.has(b.id)).toBe(false);

@@ -5,6 +5,7 @@ import weaponsData from "../data/weapons.json";
 import { GameMap, inBounds, idx, isPassableCell, isPassableWorld, worldToCell } from "../map/gameMap";
 import { makeRng, Rng } from "../map/rng";
 import { PathFinder } from "./pathfinding";
+import { HarvState, PlayerEco, applyEcoCommand, harvesterOrder, isLowPower, newEco, newHarv, releaseDock, stepEconomy, thinkHarvester } from "./economy";
 
 export const TICK_RATE = 15;
 export const DT = 1 / TICK_RATE;
@@ -26,6 +27,12 @@ export interface UnitDef {
   armor: ArmorType;
   weapon?: string;
   sight: number;
+  cost: number;
+  /** clădirea care o produce: barracks | factory */
+  producer: string;
+  prereq?: string[];
+  /** recoltor: capacitatea (credite) */
+  capacity?: number;
 }
 export interface BuildingDef {
   name: string;
@@ -34,6 +41,19 @@ export interface BuildingDef {
   weapon?: string;
   sight?: number;
   models: Record<string, string[]>;
+  cost: number;
+  /** + produce, − consumă */
+  power: number;
+  category: "structure" | "defense";
+  prereq?: string[];
+  buildable?: boolean;
+  /** unitate gratuită la plasare (rafinăria → recoltor), per facțiune */
+  freeUnit?: Record<string, string>;
+  produces?: "infantry" | "vehicle";
+  /** nu trage la energie insuficientă */
+  needsPower?: boolean;
+  /** modelul se rotește spre țintă (turelă) */
+  rotates?: boolean;
 }
 export interface WeaponDef {
   name: string;
@@ -88,6 +108,8 @@ export interface Unit {
   repathTimer: number;
   scanTimer: number;
   lastAttacker: number;
+  /** doar recoltoarele */
+  harv: HarvState | null;
 }
 
 export interface Building {
@@ -109,6 +131,13 @@ export interface Building {
   burstLeft: number;
   burstTimer: number;
   scanTimer: number;
+  /** punctul de adunare al unităților produse */
+  rally: { x: number; z: number } | null;
+  /** rafinărie: recoltorul care descarcă acum */
+  dockId: number;
+  repairing: boolean;
+  /** tick-ul plasării (pentru animația de construcție) */
+  bornTick: number;
 }
 
 export type Entity = Unit | Building;
@@ -131,7 +160,11 @@ export interface Projectile {
 export type SimEvent =
   | { kind: "fire"; weapon: string; x: number; y: number; z: number; heading: number; sourceId: number }
   | { kind: "impact"; weapon: string; x: number; z: number; splash: number }
-  | { kind: "death"; id: number; entity: "unit" | "building"; type: string; x: number; z: number; size: number };
+  | { kind: "death"; id: number; entity: "unit" | "building"; type: string; x: number; z: number; size: number }
+  | { kind: "ready"; player: number; type: string }
+  | { kind: "spawned"; player: number; id: number; type: string }
+  | { kind: "placed"; player: number; id: number; type: string }
+  | { kind: "sold"; player: number; id: number; type: string };
 
 export interface Player {
   index: number;
@@ -143,7 +176,13 @@ export interface Player {
 export type Command =
   | { kind: "move"; player: number; unitIds: number[]; x: number; z: number }
   | { kind: "attack"; player: number; unitIds: number[]; targetId: number }
-  | { kind: "stop"; player: number; unitIds: number[] };
+  | { kind: "stop"; player: number; unitIds: number[] }
+  | { kind: "produce"; player: number; item: string }
+  | { kind: "cancel"; player: number; item: string }
+  | { kind: "place"; player: number; item: string; cx: number; cy: number }
+  | { kind: "rally"; player: number; buildingId: number; x: number; z: number }
+  | { kind: "sell"; player: number; buildingId: number }
+  | { kind: "repair"; player: number; buildingId: number };
 
 const BIG_RADIUS = 1.2;
 
@@ -153,6 +192,8 @@ export class World {
   buildings = new Map<number, Building>();
   projectiles = new Map<number, Projectile>();
   events: SimEvent[] = [];
+  /** economia fiecărui jucător (credite, energie, cozi) */
+  eco: PlayerEco[];
   readonly paths: PathFinder;
   private rng: Rng;
   private nextId = 1;
@@ -161,6 +202,7 @@ export class World {
   constructor(public map: GameMap, public players: Player[], seed = 7) {
     this.paths = new PathFinder(map);
     this.rng = makeRng(seed);
+    this.eco = players.map(() => newEco());
   }
 
   entity(id: number): Entity | undefined {
@@ -192,6 +234,7 @@ export class World {
       repathTimer: 0,
       scanTimer: u32(this.nextId) % 5,
       lastAttacker: 0,
+      harv: def.capacity ? newHarv(false) : null,
     };
     this.units.set(u.id, u);
     return u;
@@ -213,6 +256,7 @@ export class World {
       heading: owner === 0 ? 0 : Math.PI,
       hp: def.hp, maxHp: def.hp,
       attackId: 0, cooldown: 0, burstLeft: 0, burstTimer: 0, scanTimer: 0,
+      rally: null, dockId: 0, repairing: false, bornTick: this.tick,
     };
     this.buildings.set(b.id, b);
     return b;
@@ -226,6 +270,7 @@ export class World {
     this.events.length = 0;
     for (const cmd of this.pending) this.apply(cmd);
     this.pending.length = 0;
+    stepEconomy(this);
     for (const u of this.units.values()) {
       u.prevX = u.x;
       u.prevZ = u.z;
@@ -241,9 +286,14 @@ export class World {
   // ─────────────────────────── comenzi ───────────────────────────
 
   private apply(cmd: Command) {
+    if (applyEcoCommand(this, cmd)) return;
+    if (cmd.kind !== "move" && cmd.kind !== "attack" && cmd.kind !== "stop") return;
     const units = cmd.unitIds.map((id) => this.units.get(id)).filter((u): u is Unit => !!u && u.owner === cmd.player);
     if (cmd.kind === "stop") {
-      for (const u of units) { u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false; }
+      for (const u of units) {
+        u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false;
+        if (u.harv) { releaseDock(this, u); u.harv.auto = false; u.harv.mode = "idle"; }
+      }
       return;
     }
     if (cmd.kind === "attack") {
@@ -254,15 +304,18 @@ export class World {
       return;
     }
     for (const u of units) { u.attackId = 0; u.attackOrdered = false; }
-    this.orderMove(units, cmd.x, cmd.z);
+    // recoltoarele: pe minereu → recoltează, pe rafinăria proprie → descarcă
+    const rest = units.filter((u) => !(u.harv && harvesterOrder(this, u, cmd.x, cmd.z)));
+    this.moveUnits(rest, cmd.x, cmd.z);
   }
 
-  private orderMove(units: Unit[], x: number, z: number) {
+  /** Mișcare în formație (folosit și pentru unitățile produse). */
+  moveUnits(units: Unit[], x: number, z: number) {
     const slots = formationSlots(this.map, units, x, z);
     units.forEach((u, i) => this.setDestination(u, slots[i].x, slots[i].z));
   }
 
-  private setDestination(u: Unit, x: number, z: number) {
+  setDestination(u: Unit, x: number, z: number) {
     const big = UNIT_DEFS[u.type].radius > BIG_RADIUS;
     u.target = { x, z };
     u.path = this.paths.find(u.x, u.z, x, z, big);
@@ -274,6 +327,11 @@ export class World {
 
   private thinkUnit(u: Unit) {
     const def = UNIT_DEFS[u.type];
+    if (u.harv) {
+      if (u.harv.auto) thinkHarvester(this, u, def);
+      this.followPath(u, def);
+      return;
+    }
     const wdef = def.weapon ? WEAPONS[def.weapon] : null;
     if (u.cooldown > 0) u.cooldown -= DT;
     if (wdef && u.burstLeft > 0) this.continueBurst(u, wdef);
@@ -469,6 +527,7 @@ export class World {
     }
     if (!t) return;
     b.heading = Math.atan2(t.z - b.z, t.x - b.x);
+    if (def.needsPower && isLowPower(this.eco[b.owner])) return; // fără energie: urmărește ținta, dar nu trage
     if (b.cooldown <= 0 && b.burstLeft === 0) this.fire(b, w, t);
   }
 
@@ -582,13 +641,19 @@ export class World {
     e.hp = 0;
     if (e.kind === "unit") {
       this.units.delete(e.id);
+      if (e.harv) releaseDock(this, e);
       this.events.push({ kind: "death", id: e.id, entity: "unit", type: e.type, x: e.x, z: e.z, size: UNIT_DEFS[e.type].radius });
     } else {
-      this.buildings.delete(e.id);
-      for (let y = e.cy; y < e.cy + e.cells; y++) for (let x = e.cx; x < e.cx + e.cells; x++) this.map.blocked[idx(this.map, x, y)] = 0;
-      this.paths.invalidate();
+      this.removeBuilding(e);
       this.events.push({ kind: "death", id: e.id, entity: "building", type: e.type, x: e.x, z: e.z, size: e.cells * this.map.cellSize * 0.5 });
     }
+  }
+
+  /** Scoate clădirea din lume (distrusă sau vândută) și eliberează celulele. */
+  removeBuilding(b: Building) {
+    this.buildings.delete(b.id);
+    for (let y = b.cy; y < b.cy + b.cells; y++) for (let x = b.cx; x < b.cx + b.cells; x++) this.map.blocked[idx(this.map, x, y)] = 0;
+    this.paths.invalidate();
   }
 
   /** Hash al stării — pentru teste de determinism / desincronizare în multiplayer. */
@@ -599,6 +664,7 @@ export class World {
       for (const v of [u.id, Math.round(u.x * 1000), Math.round(u.z * 1000), Math.round(u.heading * 1000), Math.round(u.hp * 100), u.attackId]) mix(v);
     for (const b of this.buildings.values()) { mix(b.id); mix(Math.round(b.hp * 100)); }
     for (const p of this.projectiles.values()) { mix(p.id); mix(Math.round(p.x * 1000)); mix(Math.round(p.z * 1000)); }
+    for (const e of this.eco) { mix(Math.round(e.credits * 100)); for (const q of Object.values(e.queues)) for (const it of q) mix(Math.round(it.progress * 1e6)); }
     return h >>> 0;
   }
 }

@@ -1,5 +1,7 @@
 import {
   AbstractMesh,
+  AnimationGroup,
+  MeshBuilder,
   AssetContainer,
   Color3,
   InstancedMesh,
@@ -28,6 +30,8 @@ export interface ModelDef {
   yaw: number;
   noAlign?: boolean;
   height?: number;
+  /** model cu schelet și animații (infanteria Toon Shooter): o instanță completă per unitate */
+  animated?: boolean;
   /** suprascrieri: nume material → primary | light | secondary | dark | glass | skin | none (culoarea originală) */
   colors?: Record<string, string>;
 }
@@ -77,10 +81,135 @@ export class ModelLibrary {
     const key = `${id}|${faction}|${target}|${measure}`;
     let p = this.templates.get(key);
     if (!p) {
-      p = this.container(id).then((c) => this.buildTemplate(id, c, faction, target, measure, key));
+      p = this.container(id)
+        .then((c) => this.buildTemplate(id, c, faction, target, measure, key))
+        .catch((e) => {
+          // modelul lipsește (de ex. public/models necomis) → formă simplă, ca jocul să meargă oricum
+          console.warn(`Model indisponibil: ${id} — folosesc o formă provizorie`, e?.message ?? e);
+          return this.fallbackTemplate(id, faction, target, measure, key);
+        });
       this.templates.set(key, p);
     }
     return p;
+  }
+
+  private animFit = new Map<string, { s: number; px: number; py: number; pz: number }>();
+
+  /**
+   * Instanță animată (schelet + AnimationGroup-uri proprii). Dacă modelul nu se poate încărca,
+   * cade pe varianta statică / provizorie.
+   */
+  async animatedInstance(id: string, faction: string, target: number, measure: Measure, name: string): Promise<{ root: TransformNode; anims: Map<string, AnimationGroup>; dispose: () => void }> {
+    let c: AssetContainer;
+    try { c = await this.container(id); }
+    catch {
+      const root = await this.instance(id, faction, target, measure, name);
+      return { root, anims: new Map(), dispose: () => root.dispose() };
+    }
+    const def = MODEL_DEFS[id];
+    const root = new TransformNode(name, this.scene);
+    const scaleNode = new TransformNode(`${name}:scale`, this.scene);
+    const align = new TransformNode(`${name}:align`, this.scene);
+    scaleNode.parent = root;
+    align.parent = scaleNode;
+    const entries = c.instantiateModelsToScene((n) => `${name}:${n}`, false, { doNotInstantiate: true });
+    for (const n of entries.rootNodes) n.parent = align;
+    align.rotation.y = (def.yaw * Math.PI) / 180;
+    const key = `${id}|${target}|${measure}`;
+    let fit = this.animFit.get(key);
+    if (!fit) {
+      const b = bounds(align);
+      const s = fitScale(b.size, target, measure);
+      fit = { s, px: -b.center.x, py: -b.min.y, pz: -b.center.z };
+      this.animFit.set(key, fit);
+    }
+    align.position.set(fit.px, fit.py, fit.pz);
+    scaleNode.scaling.setAll(fit.s);
+    const meshes = align.getChildMeshes(false).filter((m) => m.getTotalVertices() > 0);
+    this.overrides = def.colors;
+    if (def.recolor !== "none") this.recolor(meshes, def.recolor, FACTIONS[faction], `${id}|${faction}`);
+    for (const m of meshes) {
+      m.isPickable = false;
+      m.receiveShadows = true;
+      const mat = m.material;
+      if (mat instanceof PBRMaterial) { mat.metallic = Math.min(mat.metallic ?? 0, 0.2); mat.roughness = Math.max(mat.roughness ?? 1, 0.65); }
+    }
+    const anims = new Map<string, AnimationGroup>();
+    for (const g of entries.animationGroups) {
+      g.stop();
+      anims.set(g.name.replace(/^.*:/, ""), g);
+    }
+    return {
+      root,
+      anims,
+      dispose: () => {
+        for (const g of entries.animationGroups) g.dispose();
+        for (const sk of entries.skeletons) sk.dispose();
+        root.dispose();
+      },
+    };
+  }
+
+  /** Formă low-poly provizorie (cutii / con) când fișierul modelului lipsește. */
+  private fallbackTemplate(id: string, faction: string | null, target: number, measure: Measure, key: string): TransformNode {
+    const def = MODEL_DEFS[id];
+    const root = new TransformNode(`tpl:${key}`, this.scene);
+    const fc = faction ? FACTIONS[faction] : null;
+    const mat = (hex: string, tag: string) => {
+      let m = this.materialCache.get(`fb|${tag}|${hex}`);
+      if (!m) {
+        const p = new PBRMaterial(`fb:${tag}`, this.scene);
+        p.albedoColor = Color3.FromHexString(hex).toLinearSpace();
+        p.metallic = 0.05;
+        p.roughness = 0.8;
+        m = p;
+        this.materialCache.set(`fb|${tag}|${hex}`, m);
+      }
+      return m;
+    };
+    const parts: Mesh[] = [];
+    const box = (w: number, h: number, d: number, x: number, y: number, z: number, hex: string) => {
+      const b = MeshBuilder.CreateBox(`fb-${key}`, { width: w, height: h, depth: d }, this.scene);
+      b.position.set(x, y + h / 2, z);
+      b.material = mat(hex, "box");
+      parts.push(b);
+    };
+    const primary = fc?.primary ?? "#8a8f96", dark = fc?.dark ?? "#3a3f46", secondary = fc?.secondary ?? "#b9bdc2";
+    if (def?.height) {
+      const h = def.height;
+      if (id.startsWith("rock")) box(h * 0.9, h * 0.6, h * 0.8, 0, 0, 0, "#8d8a84");
+      else {
+        const trunk = MeshBuilder.CreateCylinder(`fb-${key}`, { height: h * 0.3, diameter: h * 0.12, tessellation: 6 }, this.scene);
+        trunk.position.y = h * 0.15;
+        trunk.material = mat("#6b4a2e", "trunk");
+        const crown = MeshBuilder.CreateCylinder(`fb-${key}`, { height: h * 0.75, diameterTop: 0, diameterBottom: h * 0.5, tessellation: 7 }, this.scene);
+        crown.position.y = h * 0.62;
+        crown.material = mat("#3f7a3a", "crown");
+        parts.push(trunk, crown);
+      }
+    } else if (measure === "height") {
+      const h = target;
+      box(h * 0.32, h * 0.42, h * 0.22, 0, 0, 0, dark);
+      box(h * 0.38, h * 0.36, h * 0.26, 0, h * 0.42, 0, primary);
+      box(h * 0.2, h * 0.2, h * 0.2, 0, h * 0.78, 0, "#d9a77f");
+    } else if (measure === "length") {
+      const L = target;
+      box(L, L * 0.22, L * 0.55, 0, 0, 0, dark);
+      box(L * 0.9, L * 0.14, L * 0.5, 0, L * 0.22, 0, primary);
+      box(L * 0.35, L * 0.14, L * 0.32, -L * 0.05, L * 0.36, 0, secondary);
+      box(L * 0.45, L * 0.06, L * 0.06, L * 0.32, L * 0.42, 0, dark);
+    } else {
+      const F = target;
+      box(F * 0.9, F * 0.35, F * 0.9, 0, 0, 0, "#b9b5ab");
+      box(F * 0.5, F * 0.25, F * 0.5, -F * 0.1, F * 0.35, -F * 0.1, primary);
+    }
+    const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, true)!;
+    merged.name = `tpl-mesh:${key}`;
+    merged.parent = root;
+    merged.receiveShadows = true;
+    merged.isPickable = false;
+    merged.isVisible = false;
+    return root;
   }
 
   async instance(id: string, faction: string | null, target: number, measure: Measure, name: string): Promise<TransformNode> {

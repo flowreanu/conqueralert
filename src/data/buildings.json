@@ -1,8 +1,8 @@
 {
-  "conyard": {"name": "Centru de Construcție", "size": "large", "models": {"usa": ["hangar_largeA"], "ussr": ["hangar_largeA"]}, "hp": 1500},
-  "power": {"name": "Centrală", "size": "small", "models": {"usa": ["generator"], "ussr": ["generator"]}, "hp": 600},
-  "refinery": {"name": "Rafinărie", "size": "medium", "models": {"usa": ["building_c", "tank_large"], "ussr": ["building_c", "tank_large"]}, "hp": 1000},
-  "barracks": {"name": "Barăci", "size": "medium", "models": {"usa": ["building_k"], "ussr": ["building_k"]}, "hp": 800},
-  "factory": {"name": "Fabrică de vehicule", "size": "large", "models": {"usa": ["building_a"], "ussr": ["building_f"]}, "hp": 1200},
-  "turret": {"name": "Turelă", "size": "small", "models": {"usa": ["turret_double"], "ussr": ["turret_double"]}, "hp": 700, "weapon": "turretGun", "sight": 28}
+  "conyard": {"name": "Centru de Construcție", "size": "large", "models": {"usa": ["hangar_largeA"], "ussr": ["hangar_largeA"]}, "hp": 1500, "cost": 3000, "power": 0, "category": "structure", "prereq": [], "buildable": false},
+  "power": {"name": "Centrală", "size": "small", "models": {"usa": ["generator"], "ussr": ["generator"]}, "hp": 600, "cost": 600, "power": 100, "category": "structure", "prereq": []},
+  "refinery": {"name": "Rafinărie", "size": "medium", "models": {"usa": ["building_c", "tank_large"], "ussr": ["building_c", "tank_large"]}, "hp": 1000, "cost": 2000, "power": -40, "category": "structure", "prereq": ["power"], "freeUnit": {"usa": "harvUsa", "ussr": "harvUssr"}},
+  "barracks": {"name": "Barăci", "size": "medium", "models": {"usa": ["building_k"], "ussr": ["building_k"]}, "hp": 800, "cost": 500, "power": -20, "category": "structure", "prereq": ["power"], "produces": "infantry"},
+  "factory": {"name": "Fabrică de vehicule", "size": "large", "models": {"usa": ["building_a"], "ussr": ["building_f"]}, "hp": 1200, "cost": 2000, "power": -40, "category": "structure", "prereq": ["refinery", "barracks"], "produces": "vehicle"},
+  "turret": {"name": "Turelă", "size": "small", "models": {"usa": ["turret_gun5"], "ussr": ["turret_cannon4"]}, "hp": 700, "weapon": "turretGun", "sight": 28, "cost": 800, "power": -30, "category": "defense", "prereq": ["barracks"], "needsPower": true, "rotates": true}
 }
