@@ -37,3 +37,7 @@ import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import "@babylonjs/core/Culling/ray";
 import "@babylonjs/core/Animations/animatable";
+export { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase";
+export { RegisterMaterialPlugin } from "@babylonjs/core/Materials/materialPluginManager";
+export { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
+export { Texture } from "@babylonjs/core/Materials/Textures/texture";

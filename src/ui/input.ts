@@ -7,6 +7,7 @@ const ATTACK_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
 )}") 16 16, crosshair`;
 import { EntityRenderer } from "../render/entities";
 import { RtsCamera } from "../render/camera";
+import type { Vision } from "../sim/vision";
 
 /**
  * Selecție RA2: click stânga = selectează (drag = dreptunghi, Shift = adaugă, dublu-click = același tip pe ecran).
@@ -30,6 +31,10 @@ export class InputController {
   private ghostBad: StandardMaterial;
   private ghostCell: { cx: number; cy: number } | null = null;
   onPlacingChange: () => void = () => {};
+  /** ceața de război: inamicii nevăzuți nu pot fi selectați ca țintă */
+  vision: Vision | null = null;
+  /** F = attack-move: următorul click dreapta (sau stânga) atacă tot pe drum */
+  amoveMode = false;
 
   constructor(
     private scene: Scene,
@@ -125,10 +130,15 @@ export class InputController {
       else if (e.button === 2) this.startPlacing(null);
       return;
     }
+    if (this.amoveMode && this.sel.size && (e.button === 0 || e.button === 2)) {
+      this.command(e.clientX, e.clientY, true);
+      this.amoveMode = false;
+      return;
+    }
     if (e.button === 0) {
       this.down = { x: e.clientX, y: e.clientY };
     } else if (e.button === 2) {
-      this.command(e.clientX, e.clientY);
+      this.command(e.clientX, e.clientY, e.ctrlKey);
     }
   }
 
@@ -152,7 +162,7 @@ export class InputController {
       const ownB = own || enemy ? 0 : this.pickOwnBuilding(e.clientX, e.clientY);
       this.view.hovered = own || enemy || ownB;
       if (ownB && !this.sel.size) { this.canvas.style.cursor = "pointer"; return; }
-      this.canvas.style.cursor = own ? "pointer" : enemy && this.sel.size ? ATTACK_CURSOR : this.sel.size ? "crosshair" : "default";
+      this.canvas.style.cursor = (this.amoveMode || e.ctrlKey) && this.sel.size ? ATTACK_CURSOR : own ? "pointer" : enemy && this.sel.size ? ATTACK_CURSOR : this.sel.size ? "crosshair" : "default";
     }
   }
 
@@ -188,7 +198,8 @@ export class InputController {
 
   private onKey(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement) return;
-    if (e.code === "Escape") { if (this.placing) this.startPlacing(null); else this.setSelection([], false); }
+    if (e.code === "Escape") { if (this.amoveMode) this.amoveMode = false; else if (this.placing) this.startPlacing(null); else this.setSelection([], false); }
+    if (e.code === "KeyF" && this.sel.size) { this.amoveMode = !this.amoveMode; if (this.amoveMode) this.canvas.style.cursor = ATTACK_CURSOR; }
     if (e.code === "KeyX" && this.sel.size) this.world.issue({ kind: "stop", player: this.player, unitIds: [...this.sel] });
     const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
     if (digit) {
@@ -218,7 +229,7 @@ export class InputController {
     this.onSelectionChange();
   }
 
-  private command(cx: number, cy: number) {
+  private command(cx: number, cy: number, amove = false) {
     const sb = this.view.selectedBuilding;
     if (!this.sel.size && sb) {
       // clădire de producție selectată: click dreapta = punct de adunare
@@ -243,8 +254,8 @@ export class InputController {
     }
     const p = this.groundPoint(cx, cy);
     if (!p) return;
-    this.world.issue({ kind: "move", player: this.player, unitIds: [...this.sel], x: p.x, z: p.z });
-    this.flashMarker(p.x, p.z);
+    this.world.issue({ kind: amove ? "amove" : "move", player: this.player, unitIds: [...this.sel], x: p.x, z: p.z });
+    this.flashMarker(p.x, p.z, amove);
   }
 
   /** Ordin de mișcare din minimap. */
@@ -254,7 +265,8 @@ export class InputController {
     this.flashMarker(x, z);
   }
 
-  private flashMarker(x: number, z: number) {
+  private flashMarker(x: number, z: number, amove = false) {
+    (this.marker.material as StandardMaterial).emissiveColor = Color3.FromHexString(amove ? "#ff8a3a" : "#7dff6a");
     this.marker.position.set(x, 0.15, z);
     this.marker.setEnabled(true);
     this.markerT = 0;
@@ -331,7 +343,7 @@ export class InputController {
     if (!p) return 0;
     const cs = this.world.map.cellSize;
     for (const b of this.world.buildings.values()) {
-      if (b.owner === this.player) continue;
+      if (b.owner === this.player || (this.vision && !this.vision.buildingVisible(b))) continue;
       if (p.x >= b.cx * cs && p.x <= (b.cx + b.cells) * cs && p.z >= b.cy * cs && p.z <= (b.cy + b.cells) * cs) return b.id;
     }
     return 0;
@@ -342,6 +354,7 @@ export class InputController {
     let best = 0, bd = Infinity;
     for (const u of this.world.units.values()) {
       if ((u.owner === this.player) === enemy) continue;
+      if (enemy && this.vision && !this.vision.unitVisible(u)) continue;
       const rad = UNIT_DEFS[u.type].radius;
       const c = this.project(u.x, rad * 0.6, u.z);
       const e = this.project(u.x + rad * 1.2, rad * 0.6, u.z);

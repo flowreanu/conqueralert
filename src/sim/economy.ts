@@ -42,6 +42,8 @@ export interface PlayerEco {
   queues: Record<Category, QueueItem[]>;
   /** credite strânse în total (statistică) */
   harvested: number;
+  /** multiplicatorul venitului din minereu (dificultatea botului; 1 pentru oameni) */
+  incomeMul: number;
 }
 
 export type HarvMode = "idle" | "toOre" | "mining" | "toRef" | "unload";
@@ -59,7 +61,7 @@ export interface HarvState {
 }
 
 export function newEco(): PlayerEco {
-  return { credits: START_CREDITS, powerOut: 0, powerUse: 0, queues: { structure: [], defense: [], infantry: [], vehicle: [] }, harvested: 0 };
+  return { credits: START_CREDITS, powerOut: 0, powerUse: 0, queues: { structure: [], defense: [], infantry: [], vehicle: [] }, harvested: 0, incomeMul: 1 };
 }
 
 export function newHarv(auto: boolean): HarvState {
@@ -142,6 +144,7 @@ export function applyEcoCommand(w: World, cmd: Command): boolean {
       if (!b) return true;
       q.shift();
       w.events.push({ kind: "placed", player: cmd.player, id: b.id, type: b.type });
+      w.stats[cmd.player].buildingsBuilt++;
       const free = BUILDING_DEFS[b.type].freeUnit?.[b.faction];
       if (free) {
         const u = spawnFrom(w, b, free);
@@ -221,7 +224,7 @@ export function stepEconomy(w: World) {
         if (!producer) { it.progress = 0.999; continue; }
         q.shift();
         const u = spawnFrom(w, producer, it.type);
-        if (u) w.events.push({ kind: "spawned", player, id: u.id, type: u.type });
+        if (u) { w.events.push({ kind: "spawned", player, id: u.id, type: u.type }); w.stats[player].unitsBuilt++; }
       }
     }
   });
@@ -241,21 +244,21 @@ function primaryProducer(w: World, player: number, type: string): Building | nul
 /** Punctul din fața clădirii (ieșirea fabricii / docul rafinăriei). */
 export function exitPoint(w: World, b: Building, extra = 1.5): { x: number; z: number } {
   const half = (b.cells * w.map.cellSize) / 2;
-  const x = b.x + Math.cos(b.heading) * (half + extra);
-  const z = b.z + Math.sin(b.heading) * (half + extra);
+  const x = b.x + Math.cos(b.facing) * (half + extra);
+  const z = b.z + Math.sin(b.facing) * (half + extra);
   return nearestPassable(w.map, x, z);
 }
 
 /** Unitate nouă la ieșirea clădirii; merge la punctul de adunare (sau puțin în față). */
 export function spawnFrom(w: World, b: Building, type: string): Unit | null {
   const p = exitPoint(w, b, 1.2);
-  const u = w.spawnUnit(type, b.owner, p.x, p.z, b.heading);
+  const u = w.spawnUnit(type, b.owner, p.x, p.z, b.facing);
   if (UNIT_DEFS[type].capacity) {
     u.harv!.auto = true;
     u.harv!.mode = "toOre";
     return u;
   }
-  const r = b.rally ?? { x: p.x + Math.cos(b.heading) * 6, z: p.z + Math.sin(b.heading) * 6 };
+  const r = b.rally ?? { x: p.x + Math.cos(b.facing) * 6, z: p.z + Math.sin(b.facing) * 6 };
   w.moveUnits([u], r.x, r.z);
   return u;
 }
@@ -439,8 +442,9 @@ export function thinkHarvester(w: World, u: Unit, def: UnitDef) {
       // întoarce spatele spre rafinărie (direcția opusă ieșirii)
       const amt = Math.min(UNLOAD_RATE * DT, h.load);
       h.load -= amt;
-      w.eco[u.owner].credits += amt;
-      w.eco[u.owner].harvested += amt;
+      const e = w.eco[u.owner];
+      e.credits += amt * e.incomeMul;
+      e.harvested += amt * e.incomeMul;
       if (h.load <= 1e-6) {
         h.load = 0;
         ref.dockId = 0;

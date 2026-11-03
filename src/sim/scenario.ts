@@ -77,3 +77,45 @@ export function createSkirmishWorld(seed = 1337): World {
     w.spawnUnit(t as string, 1, (ussr.cx + (dx as number)) * cs, (ussr.cy + (dy as number)) * cs, Math.PI));
   return w;
 }
+
+export type Difficulty = "easy" | "normal" | "hard";
+
+export interface MatchOptions {
+  /** facțiunea jucătorului uman (0); botul (1) primește cealaltă */
+  faction: "usa" | "ussr";
+  difficulty: Difficulty;
+  seed?: number;
+}
+
+/** Unitățile de start, per rol (tanc, infanterie). */
+const START_ARMY: Record<string, string[]> = {
+  usa: ["liberty", "liberty", "ranger", "ranger", "ranger"],
+  ussr: ["ursus", "ursus", "conscript", "conscript", "conscript"],
+};
+
+/**
+ * Meciul skirmish (S4): ambii jucători pornesc la fel — Centrul de Construcție, 2 tancuri, 3 soldați, 5000 $.
+ * SUA e mereu la vest și URSS la est (bazele hărții); jucătorul uman e indexul 0.
+ */
+export function createMatchWorld(opts: MatchOptions): World {
+  const seed = opts.seed ?? 1337;
+  const map = generateDeltaMap(seed);
+  const botFaction = opts.faction === "usa" ? "ussr" : "usa";
+  const w = new World(map, [
+    { index: 0, faction: opts.faction, name: "Tu" },
+    { index: 1, faction: botFaction, name: "Bot" },
+  ], seed);
+  const cs = map.cellSize;
+  w.players.forEach((p) => {
+    const base = map.bases.find((b) => b.faction === p.faction)!;
+    const dir = base.cx < map.width / 2 ? 1 : -1; // spre centrul hărții
+    w.placeBuilding("conyard", p.index, base.cx - 2, base.cy - 2);
+    const heading = dir === 1 ? 0 : Math.PI;
+    const spots: [number, number][] = [[6, -4], [6, -1], [4, 3], [5.5, 3], [7, 3]];
+    START_ARMY[p.faction].forEach((t, i) => {
+      const [dx, dy] = spots[i];
+      w.spawnUnit(t, p.index, (base.cx + dx * dir) * cs, (base.cy + dy) * cs, heading);
+    });
+  });
+  return w;
+}

@@ -110,6 +110,8 @@ export interface Unit {
   lastAttacker: number;
   /** doar recoltoarele */
   harv: HarvState | null;
+  /** attack-move: destinația (unitatea atacă tot ce întâlnește pe drum) */
+  amove: { x: number; z: number } | null;
 }
 
 export interface Building {
@@ -124,6 +126,8 @@ export interface Building {
   x: number; // centrul în metri
   z: number;
   heading: number;
+  /** orientarea fixă a clădirii (fața spre centrul hărții); `heading` se rotește doar la turele */
+  facing: number;
   hp: number;
   maxHp: number;
   attackId: number;
@@ -164,7 +168,25 @@ export type SimEvent =
   | { kind: "ready"; player: number; type: string }
   | { kind: "spawned"; player: number; id: number; type: string }
   | { kind: "placed"; player: number; id: number; type: string }
-  | { kind: "sold"; player: number; id: number; type: string };
+  | { kind: "sold"; player: number; id: number; type: string }
+  /** o clădire / un recoltor al jucătorului a fost lovit (pentru notificarea „baza e atacată”) */
+  | { kind: "hit"; player: number; id: number; x: number; z: number }
+  | { kind: "defeated"; player: number };
+
+export interface PlayerStats {
+  unitsBuilt: number;
+  unitsLost: number;
+  unitsKilled: number;
+  buildingsBuilt: number;
+  buildingsLost: number;
+  buildingsKilled: number;
+}
+const newStats = (): PlayerStats => ({ unitsBuilt: 0, unitsLost: 0, unitsKilled: 0, buildingsBuilt: 0, buildingsLost: 0, buildingsKilled: 0 });
+
+/** Ceva care dă comenzi în fiecare tick (botul). Rulează înaintea aplicării comenzilor → determinist. */
+export interface Controller {
+  think(w: World): void;
+}
 
 export interface Player {
   index: number;
@@ -175,6 +197,7 @@ export interface Player {
 /** Comenzile sunt singura cale de a modifica lumea — pregătit pentru lockstep (S8). */
 export type Command =
   | { kind: "move"; player: number; unitIds: number[]; x: number; z: number }
+  | { kind: "amove"; player: number; unitIds: number[]; x: number; z: number }
   | { kind: "attack"; player: number; unitIds: number[]; targetId: number }
   | { kind: "stop"; player: number; unitIds: number[] }
   | { kind: "produce"; player: number; item: string }
@@ -194,6 +217,13 @@ export class World {
   events: SimEvent[] = [];
   /** economia fiecărui jucător (credite, energie, cozi) */
   eco: PlayerEco[];
+  stats: PlayerStats[];
+  /** jucătorii eliminați */
+  defeated: boolean[];
+  /** câștigătorul (-1 = meciul continuă) */
+  winner = -1;
+  /** boți / alte surse de comenzi */
+  controllers: Controller[] = [];
   readonly paths: PathFinder;
   private rng: Rng;
   private nextId = 1;
@@ -203,6 +233,8 @@ export class World {
     this.paths = new PathFinder(map);
     this.rng = makeRng(seed);
     this.eco = players.map(() => newEco());
+    this.stats = players.map(() => newStats());
+    this.defeated = players.map(() => false);
   }
 
   entity(id: number): Entity | undefined {
@@ -235,6 +267,7 @@ export class World {
       scanTimer: u32(this.nextId) % 5,
       lastAttacker: 0,
       harv: def.capacity ? newHarv(false) : null,
+      amove: null,
     };
     this.units.set(u.id, u);
     return u;
@@ -249,11 +282,13 @@ export class World {
     for (let y = cy; y < cy + cells; y++) for (let x = cx; x < cx + cells; x++) this.map.blocked[idx(this.map, x, y)] = 2;
     this.paths.invalidate();
     const cs = this.map.cellSize;
+    // fața clădirii spre centrul hărții: baza de vest privește spre est, cea de est spre vest
+    const facing = cx + cells / 2 < this.map.width / 2 ? 0 : Math.PI;
     const b: Building = {
       kind: "building",
       id: this.nextId++, type, owner, faction: this.players[owner].faction, cx, cy, cells,
       x: (cx + cells / 2) * cs, z: (cy + cells / 2) * cs,
-      heading: owner === 0 ? 0 : Math.PI,
+      heading: facing, facing,
       hp: def.hp, maxHp: def.hp,
       attackId: 0, cooldown: 0, burstLeft: 0, burstTimer: 0, scanTimer: 0,
       rally: null, dockId: 0, repairing: false, bornTick: this.tick,
@@ -268,6 +303,7 @@ export class World {
 
   step() {
     this.events.length = 0;
+    if (this.winner < 0) for (const c of this.controllers) c.think(this);
     for (const cmd of this.pending) this.apply(cmd);
     this.pending.length = 0;
     stepEconomy(this);
@@ -280,18 +316,41 @@ export class World {
     this.separate();
     for (const b of this.buildings.values()) if (BUILDING_DEFS[b.type].weapon) this.thinkBuilding(b);
     this.stepProjectiles();
+    if (this.tick % TICK_RATE === 0) this.checkVictory();
     this.tick++;
+  }
+
+  /** Un jucător pierde când nu mai are nicio clădire și nicio unitate de luptă (recoltoarele nu contează). */
+  private checkVictory() {
+    if (this.winner >= 0) return;
+    const alive = this.players.map(() => false);
+    for (const b of this.buildings.values()) alive[b.owner] = true;
+    for (const u of this.units.values()) if (UNIT_DEFS[u.type].weapon) alive[u.owner] = true;
+    alive.forEach((a, p) => {
+      if (!a && !this.defeated[p]) { this.defeated[p] = true; this.events.push({ kind: "defeated", player: p }); }
+    });
+    const left = this.players.filter((_, p) => !this.defeated[p]);
+    if (left.length <= 1) this.winner = left[0]?.index ?? 0;
+  }
+
+  /** Abandon (din meniu): jucătorul e eliminat imediat. */
+  surrender(player: number) {
+    if (this.defeated[player]) return;
+    this.defeated[player] = true;
+    this.events.push({ kind: "defeated", player });
+    const left = this.players.filter((_, p) => !this.defeated[p]);
+    if (left.length <= 1) this.winner = left[0]?.index ?? 0;
   }
 
   // ─────────────────────────── comenzi ───────────────────────────
 
   private apply(cmd: Command) {
     if (applyEcoCommand(this, cmd)) return;
-    if (cmd.kind !== "move" && cmd.kind !== "attack" && cmd.kind !== "stop") return;
+    if (cmd.kind !== "move" && cmd.kind !== "amove" && cmd.kind !== "attack" && cmd.kind !== "stop") return;
     const units = cmd.unitIds.map((id) => this.units.get(id)).filter((u): u is Unit => !!u && u.owner === cmd.player);
     if (cmd.kind === "stop") {
       for (const u of units) {
-        u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false;
+        u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false; u.amove = null;
         if (u.harv) { releaseDock(this, u); u.harv.auto = false; u.harv.mode = "idle"; }
       }
       return;
@@ -300,10 +359,19 @@ export class World {
       const t = this.entity(cmd.targetId);
       if (!t || t.owner === cmd.player) return;
       // unitățile neînarmate (recoltorul) ignoră ordinul de atac
-      for (const u of units) if (UNIT_DEFS[u.type].weapon) { u.attackId = t.id; u.attackOrdered = true; u.target = null; u.path = []; u.repathTimer = 0; }
+      for (const u of units) if (UNIT_DEFS[u.type].weapon) { u.attackId = t.id; u.attackOrdered = true; u.target = null; u.path = []; u.repathTimer = 0; u.amove = null; }
       return;
     }
-    for (const u of units) { u.attackId = 0; u.attackOrdered = false; }
+    for (const u of units) { u.attackId = 0; u.attackOrdered = false; u.amove = null; }
+    if (cmd.kind === "amove") {
+      // unitățile înarmate: attack-move; recoltoarele: mișcare simplă
+      const armed = units.filter((u) => UNIT_DEFS[u.type].weapon && !u.harv);
+      const slots = formationSlots(this.map, armed, cmd.x, cmd.z);
+      armed.forEach((u, i) => { u.amove = { x: slots[i].x, z: slots[i].z }; this.setDestination(u, slots[i].x, slots[i].z); });
+      const rest = units.filter((u) => !armed.includes(u) && !(u.harv && harvesterOrder(this, u, cmd.x, cmd.z)));
+      this.moveUnits(rest, cmd.x, cmd.z);
+      return;
+    }
     // recoltoarele: pe minereu → recoltează, pe rafinăria proprie → descarcă
     const rest = units.filter((u) => !(u.harv && harvesterOrder(this, u, cmd.x, cmd.z)));
     this.moveUnits(rest, cmd.x, cmd.z);
@@ -339,14 +407,20 @@ export class World {
     if (wdef) {
       // validează ținta
       let t = u.attackId ? this.entity(u.attackId) : undefined;
-      if (u.attackId && (!t || t.owner === u.owner)) { u.attackId = 0; u.attackOrdered = false; t = undefined; }
+      const dropTarget = () => {
+        u.attackId = 0; u.attackOrdered = false; t = undefined;
+        if (u.amove) { u.target = null; u.path = []; } // reia drumul spre destinația attack-move
+      };
+      if (u.attackId && (!t || t.owner === u.owner)) dropTarget();
       // ținta găsită singură: renunță dacă iese din rază (nu o urmărim)
-      if (t && !u.attackOrdered && this.rangeTo(u, t) > wdef.range + 1) { u.attackId = 0; t = undefined; }
-      // fără ordin de mișcare și fără țintă → caută (și ripostează)
-      if (!t && !u.target && --u.scanTimer <= 0) {
+      if (t && !u.attackOrdered && this.rangeTo(u, t) > wdef.range + 1) dropTarget();
+      // attack-move: urmărește ținta doar până la o distanță rezonabilă
+      if (t && u.amove && dist(u, t) > def.sight + 12) dropTarget();
+      // fără ordin de mișcare și fără țintă → caută (și ripostează); în attack-move caută și din mers
+      if (!t && (!u.target || u.amove) && --u.scanTimer <= 0) {
         u.scanTimer = 5;
-        const found = this.findTarget(u, wdef.range, wdef.minRange ?? 0);
-        if (found) { u.attackId = found.id; u.attackOrdered = false; t = found; }
+        const found = this.findTarget(u, u.amove ? Math.max(def.sight, wdef.range) : wdef.range, wdef.minRange ?? 0);
+        if (found) { u.attackId = found.id; u.attackOrdered = !!u.amove; t = found; }
         else if (u.lastAttacker) {
           const a = this.entity(u.lastAttacker);
           if (a && a.owner !== u.owner && dist(u, a) <= def.sight + 6) { u.attackId = a.id; u.attackOrdered = true; t = a; }
@@ -354,6 +428,11 @@ export class World {
         }
       }
       if (t) { this.engage(u, def, wdef, t); return; }
+      // attack-move fără țintă: continuă spre destinație (sau termină)
+      if (u.amove && !u.target) {
+        if (Math.hypot(u.amove.x - u.x, u.amove.z - u.z) < Math.max(2.5, def.radius * 2)) u.amove = null;
+        else { this.setDestination(u, u.amove.x, u.amove.z); if (!u.target) u.amove = null; }
+      }
     }
     this.followPath(u, def);
   }
@@ -430,7 +509,7 @@ export class World {
     if (u.stuckTicks > 20) {
       u.stuckTicks = 0;
       const final = u.path[u.path.length - 1];
-      if (!chasing && Math.hypot(final.x - u.x, final.z - u.z) < def.radius * 3 + 2) { u.path = []; u.target = null; u.moving = false; return; }
+      if (!chasing && Math.hypot(final.x - u.x, final.z - u.z) < def.radius * 3 + 2) { u.path = []; u.target = null; u.moving = false; u.amove = null; return; }
       const big = def.radius > BIG_RADIUS;
       u.path = this.paths.find(u.x, u.z, final.x, final.z, big);
     }
@@ -621,24 +700,28 @@ export class World {
         const r = v.kind === "unit" ? UNIT_DEFS[v.type].radius : entityRadius(v, this.map.cellSize);
         const d = Math.max(0, Math.hypot(v.x - p.tx, v.z - p.tz) - r);
         const fall = 1 - 0.5 * Math.min(1, d / w.splash);
-        this.damage(v, w.damage * fall, w.type, p.sourceId);
+        this.damage(v, w.damage * fall, w.type, p.sourceId, p.owner);
       }
     } else {
       const t = this.entity(p.targetId);
-      if (t && t.owner !== p.owner) this.damage(t, w.damage, w.type, p.sourceId);
+      if (t && t.owner !== p.owner) this.damage(t, w.damage, w.type, p.sourceId, p.owner);
     }
   }
 
-  damage(e: Entity, amount: number, type: string, sourceId: number) {
+  damage(e: Entity, amount: number, type: string, sourceId: number, by = -1) {
     const armor: ArmorType = e.kind === "unit" ? UNIT_DEFS[e.type].armor : "building";
     const mult = VERSUS[type]?.[armor] ?? 1;
     e.hp -= amount * mult;
     if (e.kind === "unit" && sourceId) e.lastAttacker = sourceId;
-    if (e.hp <= 0) this.kill(e);
+    if (e.kind === "building" || (e as Unit).harv) this.events.push({ kind: "hit", player: e.owner, id: e.id, x: e.x, z: e.z });
+    if (e.hp <= 0) this.kill(e, by);
   }
 
-  private kill(e: Entity) {
+  private kill(e: Entity, by = -1) {
     e.hp = 0;
+    const st = this.stats[e.owner], ks = by >= 0 && by !== e.owner ? this.stats[by] : null;
+    if (e.kind === "unit") { st.unitsLost++; if (ks) ks.unitsKilled++; }
+    else { st.buildingsLost++; if (ks) ks.buildingsKilled++; }
     if (e.kind === "unit") {
       this.units.delete(e.id);
       if (e.harv) releaseDock(this, e);

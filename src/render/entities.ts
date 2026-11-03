@@ -5,6 +5,7 @@ import { Building, BUILDING_DEFS, SimEvent, Unit, UNIT_DEFS, World, angleDiff } 
 import { MODEL_DEFS, ModelLibrary, solidMaterial } from "./models";
 import { buildingTargetMeters, unitTarget } from "./scaleMath";
 import { groundHeight } from "./terrain";
+import type { Vision } from "../sim/vision";
 
 interface UnitView {
   root: TransformNode;
@@ -55,6 +56,8 @@ export class EntityRenderer {
   /** clădirea proprie selectată (0 = niciuna) */
   selectedBuilding = 0;
   onSelectionPruned: () => void = () => {};
+  /** ceața de război a jucătorului (null = se vede tot) */
+  vision: Vision | null = null;
   private frame: TransformNode;
   private rallyFlag: TransformNode;
 
@@ -173,7 +176,7 @@ export class EntityRenderer {
     const fp = b.cells * cs;
     const root = new TransformNode(`bld${b.id}`, this.scene);
     root.position.set((b.cx + b.cells / 2) * cs, 0, (b.cy + b.cells / 2) * cs);
-    root.rotation.y = b.owner === 0 ? 0 : Math.PI; // SUA cu fața spre est, URSS spre vest
+    root.rotation.y = -b.facing; // baza de vest privește spre est, cea de est spre vest
 
     // Fundație de beton cu bordură în culoarea facțiunii (clădirile city-kit nu se recolorează)
     const fc = FACTIONS[b.faction];
@@ -261,6 +264,10 @@ export class EntityRenderer {
         this.views.delete(id);
         continue;
       }
+      // inamicii din ceață nu se văd
+      const visible = !this.vision || this.vision.unitVisible(u);
+      v.root.setEnabled(visible);
+      if (!visible) { v.bar.node.setEnabled(false); if (this.hovered === id) this.hovered = 0; continue; }
       if (v.anim) {
         v.shootT = Math.max(0, v.shootT - dt);
         if (u.moving) this.playAnim(v, "Run_Gun", true, 0.95);
@@ -280,6 +287,9 @@ export class EntityRenderer {
     for (const [id, v] of this.bviews) {
       const b = this.world.buildings.get(id);
       if (!b) { v.root.dispose(); v.bar.node.dispose(); this.bviews.delete(id); continue; }
+      const seen = !this.vision || this.vision.buildingVisible(b);
+      v.root.setEnabled(seen);
+      if (!seen) { v.bar.node.setEnabled(false); continue; }
       if (v.grow < 1) { v.grow = Math.min(1, v.grow + dt / 0.9); v.body.scaling.y = Math.max(0.02, 1 - (1 - v.grow) ** 3); }
       if (v.head) v.head.rotation.y = -b.heading - v.root.rotation.y;
       this.updateBar(v.bar, b.hp / b.maxHp, b.hp < b.maxHp || this.hovered === id || this.selectedBuilding === id);

@@ -5,7 +5,8 @@
 - [x] S1: setup + cameră + selecție + mișcare
 - [x] S2: pathfinding + separare + luptă
 - [x] S3: economie + construcție + producție + sidebar
-- [ ] S4: bot + ceață + victorie + meniu + deploy → **Demo v0.1**
+- [x] S4: bot + ceață + victorie + meniu + deploy → **Demo v0.1**
+- [ ] S5: facțiunea Japonia
 
 ## Ce s-a făcut în S1
 - Vite 8 + TypeScript + Babylon.js 9. Importuri Babylon „la bucată” prin `src/render/babylon.ts` (bundle principal ~390 KB gzip în loc de ~1,3 MB).
@@ -56,12 +57,24 @@
 - **Scenariu** (`createSkirmishWorld`): SUA pornește doar cu Centrul de Construcție + 2 Liberty + 3 Rangeri + 5000 $; URSS are baza completă (2 turele) și recoltorul la lucru, dar nu construiește nimic (botul vine în S4). `createDemoWorld` (S2) rămâne pentru teste.
 - 42 de teste (18 noi: recoltare, epuizare, ordine manuale, cerințe, cost progresiv, plasare validă/invalidă, recoltor gratuit, producție + punct de adunare, anulare, lipsă de bani, energie insuficientă, vânzare, reparare, determinism cu economie).
 
-## Note pentru sesiunea următoare (S4)
-- Botul poate folosi exact aceleași comenzi ca jucătorul (`produce`, `place` cu `canPlace`, `move`, `attack`) — nimic special în simulare.
-- Ceață de război: `sight` există pe unități și turelă; minimap-ul și `pickEnemy` trebuie filtrate după vizibilitate.
-- Victorie: un jucător pierde când nu mai are clădiri (sau clădiri + unități).
-- Meniu: alegerea facțiunii → `createSkirmishWorld` cu facțiunile inversate (baza URSS e deja la est).
-- Idei rămase: attack-move, MCV (Centrul de Construcție mobil), clădiri care „clipesc” la energie insuficientă, sunet (S7).
+## Ce s-a făcut în S4 — Demo v0.1
+- **Meniu** (`src/ui/menu.ts`): alegi facțiunea (SUA / URSS), dificultatea botului (Ușor / Normal / Greu) și ceața de război (on/off); alegerile se țin minte. Pauză cu **P** sau butonul „☰ Meniu” (Continuă / Reîncepe / Abandonează / Meniul principal). „Joacă din nou” repornește cu aceleași setări (reload + `sessionStorage`).
+- **Meci** (`createMatchWorld`): start simetric — Centru de Construcție, 2 tancuri, 3 soldați, 5000 $ fiecare. SUA e mereu la vest, URSS la est; clădirile privesc spre centrul hărții (`Building.facing`, nu mai depinde de proprietar). `createSkirmishWorld` (S3) rămâne pentru teste.
+- **Bot** (`src/sim/bot.ts`): folosește doar comenzile jucătorului (determinist, gata de lockstep). Ordine de construcție Centrală → Rafinărie → Barăci → Fabrică, centrale la nevoie, a doua rafinărie, turele treptat (spre inamic, într-un inel în fața bazei), rafinăria lângă minereu, culoare de o celulă între clădiri. Recoltoare 1–2/rafinărie, rezervă de bani pentru clădirea în lucru. Armata se adună în fața bazei; valuri de atac (attack-move) la intervale fixe, din ce în ce mai mari, spre cea mai apropiată clădire inamică (preferă Rafinăria / Fabrica / Centrul); se apără când inamicul intră în bază; repară clădirile avariate.
+  - Ușor: primul val la ~5:30, grupuri de 4, venit ×0,75. Normal: ~3:50, grupuri de 6. Greu: ~2:50, grupuri de 8+, 4 turele, venit ×1,3 (ca în RA2, botul greu are avantaj economic — `PlayerEco.incomeMul`). Testat bot-contra-bot: Greu > Normal > Ușor.
+  - Botul vede tot (nu folosește ceața), ca boții RA2.
+- **Attack-move** (comanda `amove`, `Unit.amove`): unitățile atacă tot ce întâlnesc în raza de vedere, apoi își continuă drumul. Jucătorul: **Ctrl + click dreapta** sau **F** apoi click. Marker portocaliu.
+- **Ceață de război** (`src/sim/vision.ts` + `src/render/fog.ts`): per celulă neexplorat / ceață / vizibil, din `sight` (clădirile: jumătatea amprentei + 8 m). Nu intră în simulare/hash. Randare: un **plugin de material** injectat în toate materialele (Standard + PBR) înmulțește culoarea cu o textură de ceață (2 texeli/celulă, blur, tranziții line) → teren, copaci, clădiri și efecte se întunecă la fel. Unitățile inamice din ceață sunt ascunse; clădirile inamice văzute rămân pe hartă („fantome”, ca în RA2). Minimap-ul și țintirea (`pickEnemy`) respectă ceața.
+- **Victorie / înfrângere**: pierzi când nu mai ai nicio clădire și nicio unitate de luptă (recoltoarele nu contează); abandonul = înfrângere. Ecran de final cu statistici (unități produse / pierdute / distruse, clădiri, credite recoltate, durata).
+- **Notificări noi**: „Baza este atacată!” / „Recoltorul este atacat!” (cu ping pe minimap, max. o dată la 15 s), „Inamicul a fost învins!”.
+- **Deploy**: build-ul e publicat pe GitHub Pages (ramura `gh-pages`, build cu `--base=/conqueralert/`) → https://flowreanu.github.io/conqueralert/ . `vercel.json` rămâne valabil dacă vrei Vercel (importă repo-ul în Vercel; fiecare push pe `main` = deploy automat).
+- 57 de teste (15 noi: start simetric + inversarea facțiunilor, ordinea de construcție a botului, culoare între clădiri, valuri de atac, botul învinge un jucător pasiv, Greu bate Ușor, apărarea bazei, determinism cu 2 boți, attack-move vs. mișcare simplă, ceață inițială / explorat / fantome / dezactivată, abandon, recoltoarele nu țin în viață). Verificat și în Chromium headless: meniu, ceață (shader compilat fără erori), pauză, ecran de final.
+
+## Note pentru sesiunea următoare (S5 — Japonia)
+- Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `tank` / `support` / `economy`).
+- Harta are doar 2 baze (vest/est) → pentru SUA vs Japonia sau URSS vs Japonia, `createMatchWorld` trebuie să atribuie bazele după index, nu după facțiune.
+- Pentru redeploy pe Pages: `npm run build -- --base=/conqueralert/` și push al `dist/` pe `gh-pages` (vezi README).
+- Idei rămase: MCV (Centrul de Construcție mobil), clădiri care „clipesc” la energie insuficientă, sunet (S7), botul ar putea folosi și el ceața.
 
 ## Asset-uri Google Drive (folderul `Game_Assets`, id `1P1ejCJeLKS07emjhAMhW3KSCczENVXzu`)
 - ✅ `…124331Z…` (Tank Pack) și `…124642Z…` (Car Pack) — integrate în S2.
@@ -79,4 +92,4 @@
 - Unitățile păreau disproporționate în randări → s-a aplicat tabelul de scară din SPEC.md (S1).
 - Test S1: unele unități mergeau cu spatele → reparat după S1 (infanterie `yaw` 90, recoltor `yaw` 180; tancurile, Sentinel și Katiușa erau corecte).
 - Test S1: unitățile se suprapun / se lipesc în mers, fără „hitbox” → rezolvat în S2 (separare cerc-cerc).
-- Test S1: doar unitățile albastre sunt controlabile → intenționat (URSS e botul). Din S2: click dreapta pe o unitate roșie = atac.
+- Test S1: doar unitățile albastre sunt controlabile → intenționat (URSS e botul). Din S2: click dreapta pe o unitate roșie = atac. Din S4 poți alege și URSS din meniu.

@@ -5,6 +5,7 @@ import { CATEGORIES, Category, availability, buildTime, categoryOf, costOf, isLo
 import { EntityRenderer } from "../render/entities";
 import { RtsCamera } from "../render/camera";
 import { InputController } from "./input";
+import { Vis, Vision } from "../sim/vision";
 
 const FACTIONS = factionsData as Record<string, { name: string; primary: string; secondary: string; dark: string }>;
 
@@ -38,7 +39,7 @@ export interface Sidebar {
   consume(events: SimEvent[]): void;
 }
 
-export function setupSidebar(world: World, view: EntityRenderer, input: InputController, cam: RtsCamera, player: number): Sidebar {
+export function setupSidebar(world: World, view: EntityRenderer, input: InputController, cam: RtsCamera, player: number, vision: Vision | null = null): Sidebar {
   const me = world.players[player];
   const fc = FACTIONS[me.faction];
   const root = document.getElementById("sidebar")!;
@@ -214,6 +215,26 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
   mm.addEventListener("pointerup", () => { dragging = false; });
   mm.addEventListener("contextmenu", (e) => e.preventDefault());
 
+  // stratul de ceață al minimap-ului (o imagine 96×96, scalată lin)
+  const fogCanvas = document.createElement("canvas");
+  fogCanvas.width = map.width;
+  fogCanvas.height = map.height;
+  const fogCtx = fogCanvas.getContext("2d")!;
+  const fogImg = fogCtx.createImageData(map.width, map.height);
+  let fogVersion = -1;
+  const updateFog = () => {
+    if (!vision || !vision.enabled || vision.version === fogVersion) return;
+    fogVersion = vision.version;
+    for (let y = 0; y < map.height; y++)
+      for (let x = 0; x < map.width; x++) {
+        const v = vision.state[y * map.width + x];
+        const o = ((map.height - 1 - y) * map.width + x) * 4;
+        fogImg.data[o + 3] = v === Vis.Unexplored ? 255 : v === Vis.Fogged ? 120 : 0;
+      }
+    fogCtx.putImageData(fogImg, 0, 0);
+  };
+  const seesUnit = (u: { owner: number; x: number; z: number }) => !vision || u.owner === player || vision.isVisible(u.x, u.z);
+
   const drawMinimap = () => {
     ctx.drawImage(bg, 0, 0, mm.width, mm.height);
     // minereu rămas
@@ -226,6 +247,7 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     }
     ctx.globalAlpha = 1;
     for (const b of world.buildings.values()) {
+      if (vision && !vision.buildingVisible(b)) continue;
       const f = FACTIONS[b.faction];
       ctx.fillStyle = f.primary;
       ctx.fillRect(b.cx * S, mm.height - (b.cy + b.cells) * S, b.cells * S, b.cells * S);
@@ -233,10 +255,25 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
       ctx.strokeRect(b.cx * S + 0.5, mm.height - (b.cy + b.cells) * S + 0.5, b.cells * S - 1, b.cells * S - 1);
     }
     for (const u of world.units.values()) {
+      if (!seesUnit(u)) continue;
       const [x, y] = toMini(u.x, u.z);
       ctx.fillStyle = view.selected.has(u.id) ? "#ffffff" : FACTIONS[u.faction].primary;
       const s = UNIT_DEFS[u.type].radius > 1 ? 4 : 3;
       ctx.fillRect(x - s / 2, y - s / 2, s, s);
+    }
+    if (vision?.enabled) {
+      updateFog();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(fogCanvas, 0, 0, mm.width, mm.height);
+      ctx.imageSmoothingEnabled = false;
+    }
+    // ping-ul atacului asupra bazei
+    if (alertAt && performance.now() - alertAt.t < 3000) {
+      const [x, y] = toMini(alertAt.x, alertAt.z);
+      const k = ((performance.now() - alertAt.t) % 1000) / 1000;
+      ctx.strokeStyle = `rgba(255,70,50,${1 - k})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 4 + k * 14, 0, Math.PI * 2); ctx.stroke();
     }
     // ce vede camera (trapezul colțurilor ecranului pe sol)
     const c = document.getElementById("game")!.getBoundingClientRect();
@@ -250,6 +287,10 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
       ctx.stroke();
     }
   };
+
+  // ─── „baza este atacată” ───
+  let alertAt: { x: number; z: number; t: number } | null = null;
+  let lastAlert = -1e9;
 
   // ─── energie + credite ───
   let wasLow = false;
@@ -282,6 +323,12 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
         if (ev.kind === "placed" && ev.player === player) renderGrid();
         if (ev.kind === "sold" && ev.player === player) { say(`${nameOf(ev.type)} vândută`); renderGrid(); }
         if (ev.kind === "death" && ev.entity === "building") renderGrid();
+        if (ev.kind === "hit" && ev.player === player && performance.now() - lastAlert > 15000) {
+          lastAlert = performance.now();
+          alertAt = { x: ev.x, z: ev.z, t: lastAlert };
+          say(world.units.has(ev.id) ? "Recoltorul este atacat!" : "Baza este atacată!", "warn");
+        }
+        if (ev.kind === "defeated" && ev.player !== player) say("Inamicul a fost învins!", "ok");
       }
     },
     frame() {
@@ -294,7 +341,7 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
       updateGrid();
       updateInfo();
       updatePower();
-      if (frames % 12 === 0) drawMinimap();
+      if (frames % 12 === 0 || (alertAt && performance.now() - alertAt.t < 3000)) drawMinimap();
       if (toastT && performance.now() - toastT > 4000) { toast.classList.remove("show"); toastT = 0; }
     },
   };

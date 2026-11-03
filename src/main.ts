@@ -1,6 +1,10 @@
 import { Color3, DirectionalLight, Engine, HemisphericLight, ImageProcessingConfiguration, Scene, ShadowGenerator, Vector3 } from "./render/babylon";
-import { createSkirmishWorld } from "./sim/scenario";
-import { DT, UNIT_DEFS } from "./sim/world";
+import { createMatchWorld } from "./sim/scenario";
+import { Bot } from "./sim/bot";
+import { Vision } from "./sim/vision";
+import { FogRenderer, registerFogPlugin } from "./render/fog";
+import { GameSettings, createPauseMenu, showEndScreen, showMenu } from "./ui/menu";
+import { DT, TICK_RATE, UNIT_DEFS } from "./sim/world";
 import { ModelLibrary } from "./render/models";
 import { buildTerrain } from "./render/terrain";
 import { buildProps } from "./render/props";
@@ -13,7 +17,10 @@ import { setupSidebar } from "./ui/sidebar";
 import { OreRenderer } from "./render/ore";
 import "./style.css";
 
-async function boot() {
+async function boot(settings: GameSettings) {
+  const loadingEl = document.getElementById("loading");
+  if (loadingEl) loadingEl.style.display = "grid";
+  registerFogPlugin();
   const canvas = document.getElementById("game") as HTMLCanvasElement;
   const engine = new Engine(canvas, true, { stencil: true, preserveDrawingBuffer: false }, true);
   const scene = new Scene(engine);
@@ -23,7 +30,11 @@ async function boot() {
   scene.imageProcessingConfiguration.exposure = 1.0;
   scene.imageProcessingConfiguration.contrast = 1.15;
 
-  const world = createSkirmishWorld();
+  const world = createMatchWorld({ faction: settings.faction, difficulty: settings.difficulty });
+  world.controllers.push(new Bot(1, settings.difficulty));
+  const PLAYER = 0;
+  const vision = new Vision(world, PLAYER, settings.fog);
+  vision.update();
   const map = world.map;
   const W = map.width * map.cellSize, H = map.height * map.cellSize;
 
@@ -45,12 +56,16 @@ async function boot() {
   shadows.darkness = 0.3;
 
   const cam = new RtsCamera(scene, canvas, { w: W, h: H });
-  const usaBase = map.bases.find((b) => b.faction === "usa")!;
-  cam.lookAt((usaBase.cx + 8) * map.cellSize, (usaBase.cy - 6) * map.cellSize);
+  const myBase = map.bases.find((b) => b.faction === settings.faction)!;
+  const toCenter = myBase.cx < map.width / 2 ? 1 : -1;
+  cam.lookAt((myBase.cx + 8 * toCenter) * map.cellSize, (myBase.cy - 6) * map.cellSize);
 
+  // ceața trebuie să existe înaintea materialelor (pluginul își compilează varianta la prima randare)
+  const fog = settings.fog ? new FogRenderer(scene, map, vision) : null;
   buildTerrain(scene, map);
   const lib = new ModelLibrary(scene);
   const view = new EntityRenderer(scene, lib, world, shadows);
+  view.vision = settings.fog ? vision : null;
   const fx = new EffectsRenderer(scene, world);
   const ore = new OreRenderer(scene, map, shadows);
 
@@ -63,19 +78,45 @@ async function boot() {
   await loading;
   document.getElementById("loading")?.remove();
 
-  const input = new InputController(scene, canvas, cam, world, view, 0);
+  const input = new InputController(scene, canvas, cam, world, view, PLAYER);
+  input.vision = settings.fog ? vision : null;
   input.onSelectionChange = () => hud.update();
   view.onSelectionPruned = () => hud.update();
-  const sidebar = setupSidebar(world, view, input, cam, 0);
+  const sidebar = setupSidebar(world, view, input, cam, PLAYER, settings.fog ? vision : null);
+
+  // pauză / final de meci
+  let paused = false;
+  let ended = false;
+  const pause = createPauseMenu(() => setPaused(false), () => { setPaused(false); world.surrender(PLAYER); }, settings);
+  const setPaused = (v: boolean) => { if (ended) v = false; paused = v; pause.show(v); };
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "KeyP" || (e.code === "Escape" && paused)) { e.preventDefault(); setPaused(!paused); }
+  });
+  document.getElementById("menu-btn")?.addEventListener("click", () => setPaused(true));
+  // pierderea focusului nu mai trage camera cu marginile; jocul nu se oprește singur (ca în RA2 skirmish)
 
   let acc = 0;
   let last = performance.now();
+  let endTimer = 0;
   engine.runRenderLoop(() => {
     const now = performance.now();
     const dt = Math.min(0.25, (now - last) / 1000);
     last = now;
-    acc += dt;
-    while (acc >= DT) { world.step(); fx.consume(world.events); view.consume(world.events); sidebar.consume(world.events); acc -= DT; }
+    if (!paused) acc += dt;
+    while (acc >= DT) {
+      world.step();
+      fx.consume(world.events); view.consume(world.events); sidebar.consume(world.events);
+      if (world.tick % 4 === 0) vision.update();
+      acc -= DT;
+    }
+    // ecranul de final apare la 2 s după ultima explozie
+    if (world.winner >= 0 && !ended && (endTimer += dt) > 2) {
+      ended = true;
+      setPaused(false);
+      vision.update();
+      showEndScreen(world, PLAYER, world.tick / TICK_RATE, settings);
+    }
+    fog?.update(dt);
     cam.update(dt);
     input.update(dt);
     view.sync(acc / DT, dt);
@@ -88,10 +129,16 @@ async function boot() {
   window.addEventListener("resize", () => engine.resize());
 
   // acces pentru teste automate în browser
-  (window as any).__ca = { world, view, cam, input, scene, fx, UNIT_DEFS, eco: await import("./sim/economy") };
+  (window as any).__ca = { world, view, cam, input, scene, fx, vision, UNIT_DEFS, eco: await import("./sim/economy") };
 }
 
-boot().catch((e) => {
+async function start() {
+  document.getElementById("loading")!.style.display = "none";
+  const settings = await showMenu();
+  await boot(settings);
+}
+
+start().catch((e) => {
   console.error(e);
   const l = document.getElementById("loading");
   if (l) l.textContent = "Eroare la încărcare: " + (e?.message ?? e);
