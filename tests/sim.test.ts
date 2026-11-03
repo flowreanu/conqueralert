@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateDeltaMap, isPassableCell, reachable, idx, Terrain, isPassableWorld } from "../src/map/gameMap";
-import { World, TICK_RATE, formationSlots } from "../src/sim/world";
+import { World, TICK_RATE, formationSlots, UNIT_DEFS, VERSUS, WEAPONS } from "../src/sim/world";
 import { createDemoWorld } from "../src/sim/scenario";
 import { fitScale } from "../src/render/scaleMath";
 
@@ -76,13 +76,31 @@ describe("simulare — mișcare", () => {
     expect(enemy.z).toBe(z0);
   });
 
-  it("apa blochează mișcarea (fără A* încă, se oprește la mal)", () => {
+  it("A*: infanteria trece râul pe pod și ajunge pe celălalt mal", () => {
     const w = createDemoWorld();
+    for (const u of [...w.units.values()]) if (u.owner === 1) w.units.delete(u.id); // fără inamici pe drum
     const r = [...w.units.values()].find((u) => u.type === "ranger")!;
-    w.issue({ kind: "move", player: 0, unitIds: [r.id], x: 48 * 2, z: r.z });
-    run(w, 30);
-    expect(isPassableWorld(w.map, r.x, r.z)).toBe(true);
-    for (const u of w.units.values()) expect(isPassableWorld(w.map, u.x, u.z)).toBe(true);
+    const tx = 70 * 2, tz = r.z;
+    w.issue({ kind: "move", player: 0, unitIds: [r.id], x: tx, z: tz });
+    w.step();
+    expect(r.path.length).toBeGreaterThan(1);
+    for (let i = 0; i < 90 * TICK_RATE && r.target; i++) {
+      w.step();
+      expect(isPassableWorld(w.map, r.x, r.z)).toBe(true);
+    }
+    expect(Math.hypot(r.x - tx, r.z - tz)).toBeLessThan(1);
+  });
+
+  it("A*: tancul ocolește pădurea și nu intră în apă", () => {
+    const w = createDemoWorld();
+    const t = [...w.units.values()].find((u) => u.type === "liberty")!;
+    const path = w.paths.find(t.x, t.z, 70 * 2, 80 * 2, true);
+    expect(path.length).toBeGreaterThan(1);
+    let prev = { x: t.x, z: t.z };
+    for (const p of path) {
+      expect(w.paths.lineClear(prev, p, false)).toBe(true);
+      prev = p;
+    }
   });
 
   it("mișcarea de grup dă sloturi distincte, trecibile, la distanță suficientă", () => {
@@ -95,9 +113,37 @@ describe("simulare — mișcare", () => {
       for (let j = i + 1; j < slots.length; j++) expect(Math.hypot(slots[i].x - slots[j].x, slots[i].z - slots[j].z)).toBeGreaterThan(2);
     }
     w.issue({ kind: "move", player: 0, unitIds: mine.map((u) => u.id), x: 30 * 2, z: 44 * 2 });
-    run(w, 20);
+    run(w, 25);
     const arrived = mine.filter((u) => u.target === null).length;
     expect(arrived).toBe(mine.length);
+  });
+
+  it("separare: după mișcarea de grup unitățile nu se suprapun", () => {
+    const w = createDemoWorld();
+    const mine = [...w.units.values()].filter((u) => u.owner === 0);
+    // toți spre același punct, apoi încă o comandă care traversează grupul
+    w.issue({ kind: "move", player: 0, unitIds: mine.map((u) => u.id), x: 60, z: 86 });
+    run(w, 15);
+    w.issue({ kind: "move", player: 0, unitIds: mine.slice(0, 4).map((u) => u.id), x: 40, z: 86 });
+    run(w, 15);
+    for (let i = 0; i < mine.length; i++)
+      for (let j = i + 1; j < mine.length; j++) {
+        const a = mine[i], b = mine[j];
+        const min = (UNIT_DEFS[a.type].radius + UNIT_DEFS[b.type].radius) * 0.75;
+        expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(min);
+      }
+  });
+
+  it("separare: o unitate oprită se dă la o parte când trece alta prin ea", () => {
+    const w = createDemoWorld();
+    const [a, b] = [...w.units.values()].filter((u) => u.type === "ranger");
+    b.x = a.x + 6; b.z = a.z; b.prevX = b.x; b.prevZ = b.z;
+    const bz0 = b.z;
+    w.issue({ kind: "move", player: 0, unitIds: [a.id], x: a.x + 12, z: a.z });
+    run(w, 8);
+    expect(a.target).toBeNull();
+    expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(0.9);
+    expect(Math.abs(b.z - bz0) + Math.abs(b.x - (a.x - 6))).toBeGreaterThan(0.3);
   });
 
   it("e determinist (aceleași comenzi → același hash)", () => {
@@ -119,6 +165,124 @@ describe("simulare — mișcare", () => {
     expect(types.size).toBe(12);
     const b = [...w.buildings.values()][0];
     expect(isPassableCell(w.map, b.cx, b.cy)).toBe(false);
+  });
+});
+
+describe("simulare — luptă", () => {
+  /** Lume goală (fără unitățile demo), doar harta + clădirile. */
+  const arena = () => {
+    const w = createDemoWorld();
+    for (const id of [...w.units.keys()]) w.units.delete(id);
+    return w;
+  };
+  // un loc deschis pe malul vestic, departe de turele
+  const spot = (w: World) => {
+    for (let z = 30; z < 170; z += 2)
+      for (let x = 50; x < 80; x += 2) {
+        let ok = true;
+        for (let dz = -14; dz <= 14 && ok; dz += 2) for (let dx = -14; dx <= 30 && ok; dx += 2) ok = isPassableWorld(w.map, x + dx, z + dz);
+        if (ok) return { x, z };
+      }
+    throw new Error("niciun loc liber");
+  };
+
+  it("multiplicatorii armură × damage: gloanțele aproape nu zgârie tancurile", () => {
+    expect(VERSUS.bullet.heavy).toBeLessThan(0.3);
+    expect(VERSUS.ap.heavy).toBe(1);
+    expect(VERSUS.he.infantry).toBe(1);
+    const w = arena();
+    const s = spot(w);
+    const t = w.spawnUnit("ursus", 1, s.x, s.z);
+    w.damage(t, 100, "bullet", 0);
+    expect(t.hp).toBeCloseTo(UNIT_DEFS.ursus.hp - 100 * VERSUS.bullet.heavy);
+  });
+
+  it("comanda de atac: tancul se apropie, trage, ținta moare și dispare", () => {
+    const w = arena();
+    const s = spot(w);
+    const tank = w.spawnUnit("liberty", 0, s.x, s.z, 0);
+    const victim = w.spawnUnit("harvUssr", 1, s.x + 30, s.z); // neînarmat, nu ripostează
+    w.issue({ kind: "attack", player: 0, unitIds: [tank.id], targetId: victim.id });
+    let fired = 0;
+    for (let i = 0; i < 40 * TICK_RATE && w.units.has(victim.id); i++) {
+      w.step();
+      fired += w.events.filter((e) => e.kind === "fire").length;
+    }
+    expect(w.units.has(victim.id)).toBe(false);
+    w.step();
+    expect(fired).toBeGreaterThan(5);
+    expect(tank.attackId).toBe(0);
+    expect(Math.hypot(tank.x - (s.x + 30), tank.z - s.z)).toBeLessThan(WEAPONS.cannon90.range + 4);
+  });
+
+  it("unitățile inactive trag singure în inamicii din rază", () => {
+    const w = arena();
+    const s = spot(w);
+    const r = w.spawnUnit("ranger", 0, s.x, s.z);
+    const c = w.spawnUnit("conscript", 1, s.x + 10, s.z);
+    run(w, 30);
+    // unul dintre ei trebuie să fi murit
+    expect(w.units.has(r.id) && w.units.has(c.id)).toBe(false);
+  });
+
+  it("tancurile câștigă contra infanteriei 1v3, infanteria pierde", () => {
+    const w = arena();
+    const s = spot(w);
+    const tank = w.spawnUnit("liberty", 0, s.x, s.z);
+    for (let i = 0; i < 3; i++) w.spawnUnit("conscript", 1, s.x + 12, s.z - 3 + i * 3);
+    run(w, 40);
+    expect(w.units.has(tank.id)).toBe(true);
+    expect([...w.units.values()].filter((u) => u.owner === 1).length).toBe(0);
+  });
+
+  it("artileria nu poate trage sub raza minimă", () => {
+    const w = arena();
+    const s = spot(w);
+    const art = w.spawnUnit("sentinel", 0, s.x, s.z);
+    const t = w.spawnUnit("harvUssr", 1, s.x + 4.5, s.z);
+    w.issue({ kind: "attack", player: 0, unitIds: [art.id], targetId: t.id });
+    run(w, 5);
+    expect(t.hp).toBe(t.maxHp);
+  });
+
+  it("artileria are explozie cu rază (lovește mai multe ținte)", () => {
+    const w = arena();
+    const s = spot(w);
+    const art = w.spawnUnit("sentinel", 0, s.x, s.z);
+    const a = w.spawnUnit("harvUssr", 1, s.x + 30, s.z);
+    const b = w.spawnUnit("harvUssr", 1, s.x + 30, s.z + 3.4);
+    w.issue({ kind: "attack", player: 0, unitIds: [art.id], targetId: a.id });
+    run(w, 6);
+    expect(a.hp).toBeLessThan(a.maxHp);
+    expect(b.hp).toBeLessThan(b.maxHp);
+  });
+
+  it("clădirea distrusă eliberează celulele; turela apără baza", () => {
+    const w = arena();
+    const b = [...w.buildings.values()].find((x) => x.owner === 1 && x.type === "power")!;
+    expect(isPassableCell(w.map, b.cx, b.cy)).toBe(false);
+    w.damage(b, 1e6, "he", 0);
+    expect(w.buildings.has(b.id)).toBe(false);
+    expect(isPassableCell(w.map, b.cx, b.cy)).toBe(true);
+    expect(w.events.some((e) => e.kind === "death" && e.entity === "building")).toBe(true);
+
+    const turret = [...w.buildings.values()].find((x) => x.owner === 1 && x.type === "turret")!;
+    const r = w.spawnUnit("ranger", 0, turret.x - 18, turret.z);
+    run(w, 20);
+    expect(w.units.has(r.id)).toBe(false);
+  });
+
+  it("lupta e deterministă (aceleași comenzi → același hash)", () => {
+    const play = () => {
+      const w = createDemoWorld();
+      const mine = [...w.units.values()].filter((u) => u.owner === 0).map((u) => u.id);
+      const enemy = [...w.units.values()].find((u) => u.owner === 1 && u.type === "ursus")!;
+      w.issue({ kind: "attack", player: 0, unitIds: mine, targetId: enemy.id });
+      run(w, 45);
+      return w.stateHash();
+    };
+    const a = play();
+    expect(a).toBe(play());
   });
 });
 

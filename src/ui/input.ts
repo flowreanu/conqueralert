@@ -1,16 +1,22 @@
 import { Color3, Matrix, Mesh, MeshBuilder, Scene, StandardMaterial, TargetCamera, Vector3 } from "../render/babylon";
-import { UNIT_DEFS, World } from "../sim/world";
+import { UNIT_DEFS, World, entityRadius } from "../sim/world";
+
+const ATTACK_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><g fill="none" stroke="#ff3b30" stroke-width="2.5"><circle cx="16" cy="16" r="9"/><path d="M16 2v9M16 21v9M2 16h9M21 16h9"/></g></svg>',
+)}") 16 16, crosshair`;
 import { EntityRenderer } from "../render/entities";
 import { RtsCamera } from "../render/camera";
 
 /**
  * Selecție RA2: click stânga = selectează (drag = dreptunghi, Shift = adaugă, dublu-click = același tip pe ecran).
- * Click dreapta = mută. X = stop. Ctrl+1..9 = grup, 1..9 = selectează grupul (de 2 ori = centrează camera).
+ * Click dreapta = mută, sau atacă dacă e sub cursor o unitate / clădire inamică. X = stop. Ctrl+1..9 = grup, 1..9 = selectează grupul (de 2 ori = centrează camera).
  */
 export class InputController {
   private down: { x: number; y: number } | null = null;
   private box: HTMLDivElement;
   private marker: Mesh;
+  private attackMarker: Mesh;
+  private attackT = 1;
   private markerT = 1;
   private groups = new Map<string, number[]>();
   private lastGroup = { key: "", t: 0 };
@@ -36,6 +42,14 @@ export class InputController {
     this.marker.material = mm;
     this.marker.isPickable = false;
     this.marker.setEnabled(false);
+
+    this.attackMarker = MeshBuilder.CreateTorus("attackMarker", { diameter: 2, thickness: 0.22, tessellation: 32 }, scene);
+    const am = new StandardMaterial("attackMarkerMat", scene);
+    am.emissiveColor = Color3.FromHexString("#ff4a3a");
+    am.disableLighting = true;
+    this.attackMarker.material = am;
+    this.attackMarker.isPickable = false;
+    this.attackMarker.setEnabled(false);
 
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
@@ -64,7 +78,10 @@ export class InputController {
       this.cam.edgeScroll = false;
     } else {
       this.cam.edgeScroll = true;
-      this.canvas.style.cursor = this.pickUnit(e.clientX, e.clientY) ? "pointer" : this.sel.size ? "crosshair" : "default";
+      const own = this.pickUnit(e.clientX, e.clientY);
+      const enemy = own ? 0 : this.pickEnemy(e.clientX, e.clientY);
+      this.view.hovered = own || enemy;
+      this.canvas.style.cursor = own ? "pointer" : enemy && this.sel.size ? ATTACK_CURSOR : this.sel.size ? "crosshair" : "default";
     }
   }
 
@@ -126,6 +143,16 @@ export class InputController {
 
   private command(cx: number, cy: number) {
     if (!this.sel.size) return;
+    const enemy = this.pickEnemy(cx, cy);
+    if (enemy) {
+      const t = this.world.entity(enemy)!;
+      this.world.issue({ kind: "attack", player: this.player, unitIds: [...this.sel], targetId: enemy });
+      this.attackMarker.position.set(t.x, 0.2, t.z);
+      this.attackMarker.metadata = entityRadius(t, this.world.map.cellSize) * 1.1;
+      this.attackMarker.setEnabled(true);
+      this.attackT = 0;
+      return;
+    }
     const p = this.groundPoint(cx, cy);
     if (!p) return;
     this.world.issue({ kind: "move", player: this.player, unitIds: [...this.sel], x: p.x, z: p.z });
@@ -136,6 +163,13 @@ export class InputController {
 
   /** Animația markerului de mișcare (se strânge și dispare). */
   update(dt: number) {
+    if (this.attackT < 1) {
+      this.attackT = Math.min(1, this.attackT + dt * 1.4);
+      const s = (this.attackMarker.metadata as number) * (1.25 - 0.35 * this.attackT);
+      this.attackMarker.scaling.set(s, 1, s);
+      this.attackMarker.visibility = 1 - this.attackT;
+      if (this.attackT >= 1) this.attackMarker.setEnabled(false);
+    }
     if (this.markerT >= 1) return;
     this.markerT = Math.min(1, this.markerT + dt * 1.8);
     const s = 1.4 - this.markerT;
@@ -178,11 +212,25 @@ export class InputController {
     return out;
   }
 
-  /** Cea mai apropiată unitate proprie de cursor, în raza ei proiectată pe ecran. */
-  private pickUnit(cx: number, cy: number): number {
+  /** Unitate sau clădire inamică sub cursor (0 = nimic). */
+  private pickEnemy(cx: number, cy: number): number {
+    const u = this.pickUnit(cx, cy, true);
+    if (u) return u;
+    const p = this.groundPoint(cx, cy);
+    if (!p) return 0;
+    const cs = this.world.map.cellSize;
+    for (const b of this.world.buildings.values()) {
+      if (b.owner === this.player) continue;
+      if (p.x >= b.cx * cs && p.x <= (b.cx + b.cells) * cs && p.z >= b.cy * cs && p.z <= (b.cy + b.cells) * cs) return b.id;
+    }
+    return 0;
+  }
+
+  /** Cea mai apropiată unitate (proprie sau inamică) de cursor, în raza ei proiectată pe ecran. */
+  private pickUnit(cx: number, cy: number, enemy = false): number {
     let best = 0, bd = Infinity;
     for (const u of this.world.units.values()) {
-      if (u.owner !== this.player) continue;
+      if ((u.owner === this.player) === enemy) continue;
       const rad = UNIT_DEFS[u.type].radius;
       const c = this.project(u.x, rad * 0.6, u.z);
       const e = this.project(u.x + rad * 1.2, rad * 0.6, u.z);

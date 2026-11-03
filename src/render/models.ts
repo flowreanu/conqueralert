@@ -24,11 +24,11 @@ SceneLoaderFlags.ShowLoadingScreen = false; // .obj-urile au texturi lipsă → 
 
 export interface ModelDef {
   path: string;
-  recolor: "cimpletoon" | "kenneySpace" | "colormap" | "replace" | "none";
+  recolor: "cimpletoon" | "kenneySpace" | "quaternius" | "colormap" | "replace" | "none";
   yaw: number;
   noAlign?: boolean;
   height?: number;
-  /** suprascrieri: nume material → primary | secondary | dark | glass | skin */
+  /** suprascrieri: nume material → primary | light | secondary | dark | glass | skin | none (culoarea originală) */
   colors?: Record<string, string>;
 }
 export const MODEL_DEFS = modelsData as Record<string, ModelDef>;
@@ -177,7 +177,10 @@ export class ModelLibrary {
       else if (mode === "kenneySpace") color = name.includes("metalred") ? primary : null;
       else {
         const o = this.overrides?.[name];
-        color = o ? ({ primary, secondary, dark, glass: GLASS, skin: SKIN } as Record<string, Color3>)[o] : cimpletoonColor(name, primary, secondary, dark);
+        const light = Color3.Lerp(primary, Color3.White(), 0.22);
+        if (o) color = ({ primary, light, secondary, dark, glass: GLASS, skin: SKIN } as Record<string, Color3>)[o] ?? null;
+        else if (mode === "quaternius") color = quaterniusColor(name, primary, light, secondary, dark);
+        else color = cimpletoonColor(name, primary, secondary, dark);
       }
       if (!color) continue;
       const cacheKey = `${key}|${mode === "replace" ? "all" : name}`;
@@ -193,6 +196,16 @@ export class ModelLibrary {
       m.material = mat;
     }
   }
+}
+
+/** Pachetele Quaternius (tancuri): Main / Main_Light / Main_Dark / Main_Details / Wheels. */
+function quaterniusColor(name: string, primary: Color3, light: Color3, secondary: Color3, dark: Color3): Color3 | null {
+  if (name === "main") return primary;
+  if (name === "main_light") return light;
+  if (name === "main_dark") return Color3.Lerp(primary, dark, 0.55);
+  if (name === "main_details") return secondary;
+  if (name === "wheels") return dark;
+  return null;
 }
 
 function cimpletoonColor(name: string, primary: Color3, secondary: Color3, dark: Color3): Color3 {

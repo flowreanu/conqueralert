@@ -6,6 +6,7 @@ import { buildTerrain } from "./render/terrain";
 import { buildProps } from "./render/props";
 import { RtsCamera } from "./render/camera";
 import { EntityRenderer } from "./render/entities";
+import { EffectsRenderer } from "./render/effects";
 import { InputController } from "./ui/input";
 import { setupHud } from "./ui/hud";
 import "./style.css";
@@ -48,6 +49,7 @@ async function boot() {
   buildTerrain(scene, map);
   const lib = new ModelLibrary(scene);
   const view = new EntityRenderer(scene, lib, world, shadows);
+  const fx = new EffectsRenderer(scene, world);
 
   const hud = setupHud(world, view);
   const loading = Promise.all([
@@ -60,6 +62,7 @@ async function boot() {
 
   const input = new InputController(scene, canvas, cam, world, view, 0);
   input.onSelectionChange = () => hud.update();
+  view.onSelectionPruned = () => hud.update();
 
   let acc = 0;
   let last = performance.now();
@@ -68,17 +71,18 @@ async function boot() {
     const dt = Math.min(0.25, (now - last) / 1000);
     last = now;
     acc += dt;
-    while (acc >= DT) { world.step(); acc -= DT; }
+    while (acc >= DT) { world.step(); fx.consume(world.events); acc -= DT; }
     cam.update(dt);
     input.update(dt);
     view.sync(acc / DT);
+    fx.update(dt, acc / DT);
     scene.render();
     hud.frame(engine.getFps());
   });
   window.addEventListener("resize", () => engine.resize());
 
   // acces pentru teste automate în browser
-  (window as any).__ca = { world, view, cam, input, scene, UNIT_DEFS };
+  (window as any).__ca = { world, view, cam, input, scene, fx, UNIT_DEFS };
 }
 
 boot().catch((e) => {

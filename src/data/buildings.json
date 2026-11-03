@@ -1,8 +1,8 @@
 {
-  "conyard":  { "name": "Centru de Construcție", "size": "large",  "models": { "usa": ["hangar_largeA"], "ussr": ["hangar_largeA"] } },
-  "power":    { "name": "Centrală",              "size": "small",  "models": { "usa": ["generator"],     "ussr": ["generator"] } },
-  "refinery": { "name": "Rafinărie",             "size": "medium", "models": { "usa": ["building_c", "tank_large"], "ussr": ["building_c", "tank_large"] } },
-  "barracks": { "name": "Barăci",                "size": "medium", "models": { "usa": ["building_k"],    "ussr": ["building_k"] } },
-  "factory":  { "name": "Fabrică de vehicule",   "size": "large",  "models": { "usa": ["building_a"],    "ussr": ["building_f"] } },
-  "turret":   { "name": "Turelă",                "size": "small",  "models": { "usa": ["turret_double"], "ussr": ["turret_double"] } }
+  "conyard": {"name": "Centru de Construcție", "size": "large", "models": {"usa": ["hangar_largeA"], "ussr": ["hangar_largeA"]}, "hp": 1500},
+  "power": {"name": "Centrală", "size": "small", "models": {"usa": ["generator"], "ussr": ["generator"]}, "hp": 600},
+  "refinery": {"name": "Rafinărie", "size": "medium", "models": {"usa": ["building_c", "tank_large"], "ussr": ["building_c", "tank_large"]}, "hp": 1000},
+  "barracks": {"name": "Barăci", "size": "medium", "models": {"usa": ["building_k"], "ussr": ["building_k"]}, "hp": 800},
+  "factory": {"name": "Fabrică de vehicule", "size": "large", "models": {"usa": ["building_a"], "ussr": ["building_f"]}, "hp": 1200},
+  "turret": {"name": "Turelă", "size": "small", "models": {"usa": ["turret_double"], "ussr": ["turret_double"]}, "hp": 700, "weapon": "turretGun", "sight": 28}
 }

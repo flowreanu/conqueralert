@@ -10,16 +10,38 @@ interface UnitView {
   root: TransformNode;
   ring: InstancedMesh;
   ready: boolean;
+  bar: HealthBar;
 }
 
-const BUILDINGS = buildingsData as Record<string, { name: string; size: string; models: Record<string, string[]> }>;
+interface BuildingView {
+  root: TransformNode;
+  bar: HealthBar;
+}
+
+/** Bară de viață: fundal + umplere, orientată mereu spre cameră, desenată peste modele. */
+interface HealthBar {
+  node: TransformNode;
+  bg: InstancedMesh;
+  fill: InstancedMesh | null;
+  level: number; // 0 verde, 1 galben, 2 roșu
+  width: number;
+}
+
+const BUILDINGS = buildingsData as unknown as Record<string, { name: string; size: string; models: Record<string, string[]> }>;
+const BAR_COLORS = ["#5fd35a", "#e9c63e", "#e2453a"];
 const FACTIONS = factionsData as Record<string, { primary: string; dark: string }>;
 
 /** Sincronizează lumea simulată cu scena Babylon (interpolare între tick-uri). */
 export class EntityRenderer {
   private views = new Map<number, UnitView>();
+  private bviews = new Map<number, BuildingView>();
   private ringSrc: Mesh;
+  private barBg: Mesh;
+  private barFill: Mesh[];
   selected = new Set<number>();
+  /** unitatea / clădirea de sub cursor (bara ei de viață e afișată) */
+  hovered = 0;
+  onSelectionPruned: () => void = () => {};
 
   constructor(private scene: Scene, private lib: ModelLibrary, private world: World, private shadows: ShadowGenerator | null) {
     this.ringSrc = MeshBuilder.CreateTorus("selRing", { diameter: 2, thickness: 0.12, tessellation: 36 }, scene);
@@ -30,6 +52,52 @@ export class EntityRenderer {
     this.ringSrc.material = rm;
     this.ringSrc.isPickable = false;
     this.ringSrc.position.y = -1000;
+
+    const flat = (name: string, hex: string, w: number, h: number) => {
+      const m = MeshBuilder.CreatePlane(name, { width: w, height: h }, scene);
+      const mat = new StandardMaterial(`${name}-m`, scene);
+      mat.emissiveColor = Color3.FromHexString(hex);
+      mat.diffuseColor = Color3.Black();
+      mat.specularColor = Color3.Black();
+      mat.disableLighting = true;
+      mat.backFaceCulling = false;
+      m.material = mat;
+      m.isPickable = false;
+      m.renderingGroupId = 1;
+      m.position.y = -1000;
+      m.isVisible = false;
+      return m;
+    };
+    this.barBg = flat("hpBg", "#0d1013", 1, 1);
+    this.barFill = BAR_COLORS.map((c, i) => flat(`hpFill${i}`, c, 1, 1));
+  }
+
+  private makeBar(name: string, width: number, parent: TransformNode | null): HealthBar {
+    const node = new TransformNode(`hp-${name}`, this.scene);
+    node.billboardMode = TransformNode.BILLBOARDMODE_ALL;
+    node.parent = parent;
+    const bg = this.barBg.createInstance(`hpbg-${name}`);
+    bg.parent = node;
+    bg.scaling.set(width + 0.16, 0.42, 1);
+    bg.position.set(0, 0, 0.01);
+    const bar: HealthBar = { node, bg, fill: null, level: -1, width };
+    node.setEnabled(false);
+    return bar;
+  }
+
+  private updateBar(bar: HealthBar, frac: number, show: boolean) {
+    bar.node.setEnabled(show);
+    if (!show) return;
+    const level = frac > 0.6 ? 0 : frac > 0.3 ? 1 : 2;
+    if (level !== bar.level) {
+      bar.fill?.dispose();
+      bar.fill = this.barFill[level].createInstance(`hpf`);
+      bar.fill.parent = bar.node;
+      bar.level = level;
+    }
+    const f = Math.max(0.02, frac);
+    bar.fill!.scaling.set(bar.width * f, 0.26, 1);
+    bar.fill!.position.set(-(1 - f) * bar.width * 0.5, 0, 0);
   }
 
   async addUnit(u: Unit) {
@@ -41,11 +109,17 @@ export class EntityRenderer {
     ring.parent = root;
     ring.position.y = 0.08;
     ring.setEnabled(false);
-    const view: UnitView = { root, ring, ready: false };
+    // bara de viață nu se rotește cu unitatea → nod separat, poziționat în sync()
+    const bar = this.makeBar(`u${u.id}`, Math.min(3.6, Math.max(1.6, def.radius * 1.5)), null);
+    bar.node.metadata = { h: t.measure === "height" ? t.size + 0.6 : 3.4 };
+    const view: UnitView = { root, ring, ready: false, bar };
     this.views.set(u.id, view);
     const model = await this.lib.instance(def.model, u.faction, t.size, t.measure, `u${u.id}`);
+    if (!this.views.has(u.id)) { model.dispose(); return; } // a murit între timp
     model.parent = root;
     this.castShadows(model);
+    const b = model.getHierarchyBoundingVectors(true);
+    bar.node.metadata = { h: b.max.y - b.min.y + 0.7 };
     view.ready = true;
   }
 
@@ -68,6 +142,10 @@ export class EntityRenderer {
     edge.position.y = 0.07;
     edge.parent = root;
     for (const m of [slab, edge]) { m.receiveShadows = true; m.isPickable = false; }
+
+    const bar = this.makeBar(`b${b.id}`, fp * 0.6, null);
+    bar.node.position.set(root.position.x, 7, root.position.z);
+    this.bviews.set(b.id, { root, bar });
 
     const models = def.models[b.faction] ?? def.models[Object.keys(def.models)[0]];
     const target = buildingTargetMeters(def.size);
@@ -98,15 +176,31 @@ export class EntityRenderer {
   /** alpha = fracțiunea dintre tick-ul anterior și cel curent. */
   sync(alpha: number) {
     const m = this.world.map;
+    let pruned = false;
     for (const [id, v] of this.views) {
       const u = this.world.units.get(id);
-      if (!u) { v.root.dispose(); this.views.delete(id); continue; }
+      if (!u) {
+        v.root.dispose();
+        v.bar.node.dispose();
+        this.views.delete(id);
+        if (this.selected.delete(id)) pruned = true;
+        continue;
+      }
       const x = u.prevX + (u.x - u.prevX) * alpha;
       const z = u.prevZ + (u.z - u.prevZ) * alpha;
       const h = u.prevHeading + angleDiff(u.heading, u.prevHeading) * alpha;
       v.root.position.set(x, groundHeight(m, x, z), z);
       v.root.rotation.y = -h; // Babylon e left-handed: heading spre +z ⇒ rotație negativă în jurul Y
-      v.ring.setEnabled(this.selected.has(id));
+      const sel = this.selected.has(id);
+      v.ring.setEnabled(sel);
+      v.bar.node.position.set(x, v.root.position.y + (v.bar.node.metadata?.h ?? 3), z);
+      this.updateBar(v.bar, u.hp / u.maxHp, sel || u.hp < u.maxHp || this.hovered === id);
     }
+    for (const [id, v] of this.bviews) {
+      const b = this.world.buildings.get(id);
+      if (!b) { v.root.dispose(); v.bar.node.dispose(); this.bviews.delete(id); continue; }
+      this.updateBar(v.bar, b.hp / b.maxHp, b.hp < b.maxHp || this.hovered === id);
+    }
+    if (pruned) this.onSelectionPruned();
   }
 }

@@ -25,7 +25,10 @@ export { SceneLoaderFlags } from "@babylonjs/core/Loading/sceneLoaderFlags";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
-export const MeshBuilder = { CreateBox, CreateTorus, CreateGround };
+import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
+import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
+import { CreateDisc } from "@babylonjs/core/Meshes/Builders/discBuilder";
+export const MeshBuilder = { CreateBox, CreateTorus, CreateGround, CreatePlane, CreateSphere, CreateDisc };
 
 import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
 import "@babylonjs/core/Meshes/thinInstanceMesh";

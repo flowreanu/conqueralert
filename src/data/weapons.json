@@ -1,0 +1,17 @@
+{
+  "versus": {
+    "bullet": { "infantry": 1.0,  "light": 0.4,  "heavy": 0.2,  "building": 0.15 },
+    "ap":     { "infantry": 0.35, "light": 1.0,  "heavy": 1.0,  "building": 0.6 },
+    "he":     { "infantry": 1.0,  "light": 0.8,  "heavy": 0.55, "building": 1.0 },
+    "rocket": { "infantry": 0.6,  "light": 1.0,  "heavy": 0.8,  "building": 1.0 }
+  },
+  "weapons": {
+    "rifleUsa":   { "name": "Pușcă M16",       "damage": 14, "type": "bullet", "range": 14, "cooldown": 1.0, "projectile": "bullet", "speed": 140, "muzzle": [0.6, 1.5] },
+    "rifleUssr":  { "name": "Kalașnikov",       "damage": 12, "type": "bullet", "range": 13, "cooldown": 0.9, "projectile": "bullet", "speed": 140, "muzzle": [0.6, 1.5] },
+    "cannon90":   { "name": "Tun 90 mm",        "damage": 55, "type": "ap",     "range": 22, "cooldown": 1.5, "projectile": "shell",  "speed": 70,  "muzzle": [3.2, 2.0] },
+    "cannon120x2":{ "name": "Tun dublu 120 mm", "damage": 45, "type": "ap",     "range": 22, "cooldown": 2.4, "projectile": "shell",  "speed": 60,  "muzzle": [3.6, 2.3], "burst": 2, "burstDelay": 0.25 },
+    "howitzer":   { "name": "Obuzier",          "damage": 85, "type": "he",     "range": 42, "minRange": 8, "cooldown": 4.0, "projectile": "arc", "speed": 28, "muzzle": [3.0, 1.8], "splash": 3.0, "groundTarget": true },
+    "rockets":    { "name": "Rachete Katiușa",  "damage": 28, "type": "rocket", "range": 38, "minRange": 6, "cooldown": 6.0, "projectile": "rocket", "speed": 26, "muzzle": [0.5, 2.2], "splash": 2.5, "burst": 4, "burstDelay": 0.2, "scatter": 2.2, "groundTarget": true },
+    "turretGun":  { "name": "Tun de turelă",    "damage": 50, "type": "ap",     "range": 26, "cooldown": 1.3, "projectile": "shell",  "speed": 75,  "muzzle": [1.5, 2.6] }
+  }
+}
