@@ -56,7 +56,10 @@ export class ModelLibrary {
     if (!p) {
       const def = MODEL_DEFS[id];
       if (!def) throw new Error(`Model necunoscut: ${id}`);
-      p = LoadAssetContainerAsync(import.meta.env.BASE_URL + def.path, this.scene).then((c) => {
+      // varianta „artifact” (un singur fișier): modelele vin ca data-URI din window.__CA_MODELS
+      const embedded = (globalThis as any).__CA_MODELS?.[def.path] as string | undefined;
+      const ext = def.path.slice(def.path.lastIndexOf("."));
+      p = LoadAssetContainerAsync(embedded ?? import.meta.env.BASE_URL + def.path, this.scene, { pluginExtension: ext }).then((c) => {
         c.lights.slice().forEach((l) => l.dispose());
         c.cameras.slice().forEach((cam) => cam.dispose());
         return c;
