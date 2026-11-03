@@ -40,8 +40,11 @@ Descărcate de Andrei de pe quaternius.com (CC0). Se citesc prin conectorul Goog
 
 ## Probleme cunoscute / provizorii
 - Tanc Ursus (`Tank3.obj`) e o singură culoare (fără texturi); Katiușa (`artillery1`) e un tun vechi cu roți — ambele provizorii, cum s-a stabilit.
-- Recoltorul (`craft_miner`) arată ca o navă; orientarea lui nu a fost verificată.
+- Recoltorul (`craft_miner`) arată ca o navă.
 - Infanteria are aceeași siluetă pentru Ranger și Conscript (diferă doar culorile).
 
 ## Feedback de la Andrei
 - Unitățile păreau disproporționate în randări → s-a aplicat tabelul de scară din SPEC.md (S1).
+- Test S1: unele unități mergeau cu spatele → reparat după S1 (infanterie `yaw` 90, recoltor `yaw` 180; tancurile, Sentinel și Katiușa erau corecte).
+- Test S1: unitățile se suprapun / se lipesc în mers, fără „hitbox” → **prioritate în S2**: separare (coliziuni cerc-cerc pe `radius` din `units.json`), unitățile care au ajuns se dau la o parte, cele care merg se ocolesc.
+- Test S1: doar unitățile albastre sunt controlabile → intenționat (URSS e botul). În S2: click dreapta pe o unitate roșie = atac.
