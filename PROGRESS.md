@@ -29,6 +29,15 @@
 - Comanda de atac (click dreapta pe inamic) — selecția ignoră acum unitățile inamice.
 - Clădirile au deja `id`/`owner` în `World.buildings` → pot primi HP în S2/S3.
 
+## Asset-uri noi (Google Drive, folderul `Game_Assets`, id `1P1ejCJeLKS07emjhAMhW3KSCczENVXzu`)
+Descărcate de Andrei de pe quaternius.com (CC0). Se citesc prin conectorul Google Drive, se convertesc în .glb și se integrează în S2:
+- `drive-download-20261103T124331Z-1-001.zip` (3,6 MB)
+- `drive-download-20261103T124408Z-1-001.zip` (9 MB)
+- `drive-download-20261103T124508Z-1-001.zip` (21,6 MB)
+- `drive-download-20261103T124642Z-1-001.zip` (2,8 MB)
+- `Sci-Fi Essentials Kit[Standard].zip` (167 MB) — pentru Japonia (S5), nu e urgent
+Țintă: Animated Tanks → Liberty/Ursus; Turrets → Turelă; Toon Shooter → Ranger/Conscript; Car Pack → Recoltor.
+
 ## Probleme cunoscute / provizorii
 - Tanc Ursus (`Tank3.obj`) e o singură culoare (fără texturi); Katiușa (`artillery1`) e un tun vechi cu roți — ambele provizorii, cum s-a stabilit.
 - Recoltorul (`craft_miner`) arată ca o navă; orientarea lui nu a fost verificată.
