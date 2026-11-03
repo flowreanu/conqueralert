@@ -181,3 +181,47 @@ describe("S4 — victorie", () => {
     expect(w.winner).toBe(1);
   });
 });
+
+describe("S4.1 — echilibrare", () => {
+  const duel = (a: [string, number][], b: [string, number][]) => {
+    const w = createSkirmishWorld();
+    for (const u of [...w.units.values()]) w.units.delete(u.id);
+    const place = (list: [string, number][], p: number, x0: number) => { let i = 0; for (const [t, n] of list) for (let k = 0; k < n; k++, i++) w.spawnUnit(t, p, x0 + Math.floor(i / 7) * 2.5 * (p ? 1 : -1), 80 + (i % 7) * 3, p ? Math.PI : 0); };
+    place(a, 0, 22); place(b, 1, 60);
+    const ids = (p: number) => units(w, p).map((u) => u.id);
+    w.issue({ kind: "amove", player: 0, unitIds: ids(0), x: 75, z: 88 });
+    w.issue({ kind: "amove", player: 1, unitIds: ids(1), x: 8, z: 88 });
+    for (let i = 0; i < 120 * TICK_RATE && ids(0).length && ids(1).length; i++) w.step();
+    return { usa: units(w, 0).length, ussr: units(w, 1).length };
+  };
+
+  it("infanteria la cost egal nu mai e câștigată la scor de URSS (1800 $ vs 1800 $)", () => {
+    const r = duel([["ranger", 12]], [["conscript", 16]]); // 12×150 vs 16×110 ≈ 1800 $
+    // fie câștigă Rangerii, fie Conscripții rămân cu foarte puțini
+    expect(r.ussr).toBeLessThanOrEqual(4);
+  });
+
+  it("botul Ușor nu depășește plafonul armatei și produce rar", () => {
+    const w = createMatchWorld({ faction: "usa", difficulty: "easy" });
+    w.controllers.push(new Bot(1, "easy"));
+    run(w, 360);
+    const army = units(w, 1).filter((u) => !u.harv).length;
+    expect(army).toBeLessThanOrEqual(13);
+  });
+
+  it("riposta nu urmărește un inamic care fuge la nesfârșit — unitatea se întoarce la post", () => {
+    const w = createSkirmishWorld();
+    const t = units(w, 1).find((u) => u.type === "ursus")!;
+    const home = { x: t.x, z: t.z };
+    const bait = w.spawnUnit("liberty", 0, t.x - 20, t.z, 0);
+    run(w, 1.5); // Ursus îl atacă pe Liberty (sau ripostează)
+    // momeala fuge departe, spre vest
+    w.issue({ kind: "move", player: 0, unitIds: [bait.id], x: 20, z: bait.z });
+    t.lastAttacker = bait.id; t.attackId = bait.id; t.attackOrdered = true; t.leash = { x: home.x, z: home.z };
+    run(w, 25);
+    expect(Math.hypot(t.x - home.x, t.z - home.z)).toBeLessThan(UNIT_DEFS_SIGHT(t.type) + 16);
+    expect(t.attackId === bait.id && Math.hypot(t.x - home.x, t.z - home.z) > 40).toBe(false);
+  });
+});
+import { UNIT_DEFS } from "../src/sim/world";
+const UNIT_DEFS_SIGHT = (t: string) => UNIT_DEFS[t].sight;

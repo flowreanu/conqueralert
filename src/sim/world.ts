@@ -112,6 +112,8 @@ export interface Unit {
   harv: HarvState | null;
   /** attack-move: destinația (unitatea atacă tot ce întâlnește pe drum) */
   amove: { x: number; z: number } | null;
+  /** locul de unde a pornit urmărirea unei ținte găsite singură (riposte / attack-move); null = ordin explicit */
+  leash: { x: number; z: number } | null;
 }
 
 export interface Building {
@@ -268,6 +270,7 @@ export class World {
       lastAttacker: 0,
       harv: def.capacity ? newHarv(false) : null,
       amove: null,
+      leash: null,
     };
     this.units.set(u.id, u);
     return u;
@@ -350,7 +353,7 @@ export class World {
     const units = cmd.unitIds.map((id) => this.units.get(id)).filter((u): u is Unit => !!u && u.owner === cmd.player);
     if (cmd.kind === "stop") {
       for (const u of units) {
-        u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false; u.amove = null;
+        u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false; u.amove = null; u.leash = null;
         if (u.harv) { releaseDock(this, u); u.harv.auto = false; u.harv.mode = "idle"; }
       }
       return;
@@ -359,10 +362,10 @@ export class World {
       const t = this.entity(cmd.targetId);
       if (!t || t.owner === cmd.player) return;
       // unitățile neînarmate (recoltorul) ignoră ordinul de atac
-      for (const u of units) if (UNIT_DEFS[u.type].weapon) { u.attackId = t.id; u.attackOrdered = true; u.target = null; u.path = []; u.repathTimer = 0; u.amove = null; }
+      for (const u of units) if (UNIT_DEFS[u.type].weapon) { u.attackId = t.id; u.attackOrdered = true; u.target = null; u.path = []; u.repathTimer = 0; u.amove = null; u.leash = null; }
       return;
     }
-    for (const u of units) { u.attackId = 0; u.attackOrdered = false; u.amove = null; }
+    for (const u of units) { u.attackId = 0; u.attackOrdered = false; u.amove = null; u.leash = null; }
     if (cmd.kind === "amove") {
       // unitățile înarmate: attack-move; recoltoarele: mișcare simplă
       const armed = units.filter((u) => UNIT_DEFS[u.type].weapon && !u.harv);
@@ -408,22 +411,24 @@ export class World {
       // validează ținta
       let t = u.attackId ? this.entity(u.attackId) : undefined;
       const dropTarget = () => {
-        u.attackId = 0; u.attackOrdered = false; t = undefined;
+        const home = u.leash;
+        u.attackId = 0; u.attackOrdered = false; t = undefined; u.leash = null;
         if (u.amove) { u.target = null; u.path = []; } // reia drumul spre destinația attack-move
+        else if (home) this.setDestination(u, home.x, home.z); // riposta abandonată: se întoarce unde era
       };
       if (u.attackId && (!t || t.owner === u.owner)) dropTarget();
       // ținta găsită singură: renunță dacă iese din rază (nu o urmărim)
       if (t && !u.attackOrdered && this.rangeTo(u, t) > wdef.range + 1) dropTarget();
-      // attack-move: urmărește ținta doar până la o distanță rezonabilă
-      if (t && u.amove && dist(u, t) > def.sight + 12) dropTarget();
+      // riposta / attack-move: nu urmărește ținta la nesfârșit (de ex. un tanc care fuge spre baza lui)
+      if (t && u.leash && dist(u, u.leash) > def.sight + 10) dropTarget();
       // fără ordin de mișcare și fără țintă → caută (și ripostează); în attack-move caută și din mers
       if (!t && (!u.target || u.amove) && --u.scanTimer <= 0) {
         u.scanTimer = 5;
         const found = this.findTarget(u, u.amove ? Math.max(def.sight, wdef.range) : wdef.range, wdef.minRange ?? 0);
-        if (found) { u.attackId = found.id; u.attackOrdered = !!u.amove; t = found; }
+        if (found) { u.attackId = found.id; u.attackOrdered = !!u.amove; u.leash = u.amove ? { x: u.x, z: u.z } : null; t = found; }
         else if (u.lastAttacker) {
           const a = this.entity(u.lastAttacker);
-          if (a && a.owner !== u.owner && dist(u, a) <= def.sight + 6) { u.attackId = a.id; u.attackOrdered = true; t = a; }
+          if (a && a.owner !== u.owner && dist(u, a) <= def.sight + 6) { u.attackId = a.id; u.attackOrdered = true; u.leash = { x: u.x, z: u.z }; t = a; }
           u.lastAttacker = 0;
         }
       }

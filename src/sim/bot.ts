@@ -35,12 +35,16 @@ interface Profile {
   vehicleShare: number;
   /** multiplicatorul venitului (ca în RA2, botul mai greu are un mic avantaj economic) */
   income: number;
+  /** plafonul armatei (unități de luptă) */
+  maxArmy: number;
+  /** șansa de a pune ceva în coadă la fiecare „gând” (Ușor produce mai rar) */
+  buildChance: number;
 }
 
 export const BOT_PROFILES: Record<Difficulty, Profile> = {
-  easy: { think: 30, firstWave: 330, waveGap: 170, waveSize: 4, waveGrow: 1, maxWave: 8, turrets: 1, refineries: 1, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.4, income: 0.75 },
-  normal: { think: 15, firstWave: 230, waveGap: 120, waveSize: 6, waveGrow: 2, maxWave: 14, turrets: 2, refineries: 2, harvPerRef: 1, queueDepth: 2, vehicleShare: 0.55, income: 1 },
-  hard: { think: 8, firstWave: 170, waveGap: 90, waveSize: 8, waveGrow: 3, maxWave: 20, turrets: 4, refineries: 2, harvPerRef: 2, queueDepth: 3, vehicleShare: 0.65, income: 1.3 },
+  easy: { think: 30, firstWave: 420, waveGap: 200, waveSize: 4, waveGrow: 1, maxWave: 7, turrets: 1, refineries: 1, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.4, income: 0.6, maxArmy: 12, buildChance: 0.35 },
+  normal: { think: 15, firstWave: 270, waveGap: 140, waveSize: 6, waveGrow: 2, maxWave: 12, turrets: 2, refineries: 2, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.55, income: 0.9, maxArmy: 24, buildChance: 0.7 },
+  hard: { think: 8, firstWave: 180, waveGap: 100, waveSize: 8, waveGrow: 3, maxWave: 20, turrets: 4, refineries: 2, harvPerRef: 2, queueDepth: 2, vehicleShare: 0.65, income: 1.25, maxArmy: 45, buildChance: 1 },
 };
 
 const THREAT_RADIUS = 30; // m în jurul clădirilor proprii
@@ -232,6 +236,9 @@ export class Bot implements Controller {
       return;
     }
     if (isLowPower(e)) return;
+    // plafonul armatei (cu tot ce e deja în coadă) + ritmul de producție al dificultății
+    const army = this.myUnits(w).filter((u) => !u.harv && UNIT_DEFS[u.type].weapon).length + vq.length + iq.length;
+    if (army >= this.profile.maxArmy || this.rng.next() > this.profile.buildChance) return;
     const depth = this.profile.queueDepth;
     const pick = (role: string[]) => {
       const c = types.filter((k) => role.includes(UNIT_DEFS[k].role) && availability(w, this.player, k).ok);
@@ -288,7 +295,9 @@ export class Bot implements Controller {
     if (w.tick >= this.nextWaveTick && (this.staging.size >= this.waveSize || (late && this.staging.size >= 3))) {
       const target = this.pickTarget(w, rally);
       if (target) {
-        const ids = [...this.staging];
+        // Ușor: pleacă doar grupul valului, restul rămâne acasă; Normal / Greu: toată armata adunată
+        let ids = [...this.staging];
+        if (this.difficulty === "easy") ids = ids.slice(0, this.waveSize);
         const p = nearestPassable(w.map, target.x, target.z);
         w.issue({ kind: "amove", player: this.player, unitIds: ids, x: p.x, z: p.z });
         for (const id of ids) { this.attackers.add(id); this.staging.delete(id); }

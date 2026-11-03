@@ -6,6 +6,7 @@
 - [x] S2: pathfinding + separare + luptă
 - [x] S3: economie + construcție + producție + sidebar
 - [x] S4: bot + ceață + victorie + meniu + deploy → **Demo v0.1**
+- [x] S4.1: echilibrare (infanterie, bot Ușor, urmărire, minereu)
 - [ ] S5: facțiunea Japonia
 
 ## Ce s-a făcut în S1
@@ -69,6 +70,21 @@
 - **Notificări noi**: „Baza este atacată!” / „Recoltorul este atacat!” (cu ping pe minimap, max. o dată la 15 s), „Inamicul a fost învins!”.
 - **Deploy**: build-ul e publicat pe GitHub Pages (ramura `gh-pages`, build cu `--base=/conqueralert/`) → https://flowreanu.github.io/conqueralert/ . `vercel.json` rămâne valabil dacă vrei Vercel (importă repo-ul în Vercel; fiecare push pe `main` = deploy automat).
 - 57 de teste (15 noi: start simetric + inversarea facțiunilor, ordinea de construcție a botului, culoare între clădiri, valuri de atac, botul învinge un jucător pasiv, Greu bate Ușor, apărarea bazei, determinism cu 2 boți, attack-move vs. mișcare simplă, ceață inițială / explorat / fantome / dezactivată, abandon, recoltoarele nu țin în viață). Verificat și în Chromium headless: meniu, ceață (shader compilat fără erori), pauză, ecran de final.
+
+## S4.1 — echilibrare (după primul test al lui Andrei)
+Feedback: pe Ușor botul producea foarte mult și foarte repede; după ce a urmărit un tanc, armata lui Andrei a fost distrusă; URSS părea mult prea puternic.
+- **Diagnostic** (simulări la cost egal + meciuri bot-contra-bot):
+  - Conscriptul era de ~2× mai eficient decât Rangerul (18 Conscripți la 1800 $ îi băteau clar pe 9 Rangeri la 1800 $). Botul producea mai ales Conscripți → pe Ușor avea **55 de unități la minutul 6**.
+  - Tancurile erau aproape echilibrate; Katiușa era prea ieftină în armatele mixte.
+  - Unitățile care ripostau (sau din attack-move) urmăreau ținta **la nesfârșit** → intrau după ea în baza inamică, între turele și armata botului.
+  - Harta favoriza baza de **vest**, indiferent de facțiune (SUA vs SUA: vestul câștiga 14 din 15); o cauză: al doilea câmp de minereu al estului avea ~6100 de credite față de ~11000 la vest.
+- **Schimbări:**
+  - Ranger 200 → **150 $**; Conscript 100 → **110 $**, viață 90 → **80**, damage 12 → **11**; Ursus 900 → **850 $**; Katiușa 800 → **900 $**, rachete 28 → **24**. La cost egal: infanteria ~egal, armatele mixte ~egal.
+  - **Leash** (`Unit.leash`): riposta și attack-move-ul renunță la țintă dacă s-au depărtat cu mai mult de `sight + 10` m de locul de unde au pornit, iar riposta se întoarce la post. Ordinul explicit de atac (click dreapta pe inamic) urmărește în continuare oriunde.
+  - Botul: **plafon de armată** (Ușor 12, Normal 24, Greu 45) și ritm de producție (Ușor pune ceva în coadă doar în 35% din „gânduri”, Normal 70%); venit Ușor ×0,6, Normal ×0,9, Greu ×1,25; primul val: Ușor ~7:00 (doar 4 unități pleacă, restul stau acasă), Normal ~4:30, Greu ~3:00.
+  - Câmpul de minereu de sud-est (63,12) mărit (r 3,5 → 4,7) → ~10900 credite, cât cel din nord-vest. Acum SUA vs SUA (bot vs bot): vest 8 – est 5, 3 egaluri.
+- 60 de teste (3 noi: infanteria la cost egal, plafonul botului Ușor, riposta care se întoarce la post).
+- Rămas: harta nu e perfect simetrică (podurile la rândurile 40 și 74, bazele la 50 și 46). Pentru meciuri complet corecte ar trebui o hartă în oglindă / rotită la 180°.
 
 ## Note pentru sesiunea următoare (S5 — Japonia)
 - Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `tank` / `support` / `economy`).

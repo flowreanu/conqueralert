@@ -141,7 +141,7 @@ export function generateDeltaMap(seed = 1337): GameMap {
     { cx: 22, cy: 66, r: 4 },
     { cx: 74, cy: 30, r: 4 },
     { cx: 34, cy: 86, r: 3.5 },
-    { cx: 63, cy: 12, r: 3.5 },
+    { cx: 63, cy: 12, r: 4.7 },
   ];
   for (const f of m.oreFields)
     for (let y = Math.floor(f.cy - f.r); y <= Math.ceil(f.cy + f.r); y++)
