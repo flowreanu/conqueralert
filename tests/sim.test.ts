@@ -176,7 +176,7 @@ describe("simulare — mișcare", () => {
 
   it("clădirile demo sunt plasate (6 roluri × 2 facțiuni) și blochează celule", () => {
     const w = createDemoWorld();
-    const types = new Set([...w.buildings.values()].map((b) => `${b.owner}:${b.type}`));
+    const types = new Set([...w.buildings.values()].filter((b) => b.owner >= 0).map((b) => `${b.owner}:${b.type}`));
     expect(types.size).toBe(12);
     const b = [...w.buildings.values()][0];
     expect(isPassableCell(w.map, b.cx, b.cy)).toBe(false);
@@ -184,10 +184,13 @@ describe("simulare — mișcare", () => {
 });
 
 describe("simulare — luptă", () => {
-  /** Lume goală (fără unitățile demo), doar harta + clădirile. */
+  /** Lume goală (fără unitățile demo), doar harta + clădirile (fără copaci și clădiri civile — teren deschis). */
   const arena = () => {
     const w = createDemoWorld();
     for (const id of [...w.units.keys()]) w.units.delete(id);
+    for (const b of [...w.buildings.values()]) if (b.owner < 0) w.removeBuilding(b);
+    w.map.blocked.forEach((v, i) => { if (v === 1) w.map.blocked[i] = 0; });
+    w.paths.invalidate();
     return w;
   };
   // un loc deschis pe malul vestic, departe de turele

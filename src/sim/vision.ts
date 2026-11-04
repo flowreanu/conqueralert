@@ -84,7 +84,7 @@ export class Vision {
   }
 
   private anyCellVisible(b: Building) {
-    for (let y = b.cy; y < b.cy + b.cells; y++) for (let x = b.cx; x < b.cx + b.cells; x++) if (this.cell(x, y) === Vis.Visible) return true;
+    for (let y = b.cy; y < b.cy + b.ch; y++) for (let x = b.cx; x < b.cx + b.cw; x++) if (this.cell(x, y) === Vis.Visible) return true;
     return false;
   }
 
@@ -92,8 +92,9 @@ export class Vision {
     return u.owner === this.player || this.isVisible(u.x, u.z);
   }
 
+  /** Clădirile civile fac parte din hartă (se văd mereu, ca decorul); ocupanții lor nu (vezi randarea). */
   buildingVisible(b: Building) {
-    return b.owner === this.player || this.seenBuildings.has(b.id);
+    return b.owner === this.player || this.seenBuildings.has(b.id) || BUILDING_DEFS[b.type].category === "civilian";
   }
 
   /** Unitate sau clădire: poate fi țintită / afișată de jucător. */

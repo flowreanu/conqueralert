@@ -11,7 +11,7 @@ const units = (w: World, p: number, type?: string) => [...w.units.values()].filt
 /** Construiește + plasează o clădire pentru jucătorul 0, în primul loc valid lângă bază. */
 function build(w: World, item: string): boolean {
   w.issue({ kind: "produce", player: 0, item });
-  const cat = BUILDING_DEFS[item].category;
+  const cat = BUILDING_DEFS[item].category as "structure" | "defense";
   for (let i = 0; i < TICK_RATE * 120 && !w.eco[0].queues[cat][0]?.ready; i++) w.step();
   const { cx, cy } = w.map.bases[0];
   for (let r = 3; r < 14; r++)

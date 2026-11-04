@@ -5,7 +5,8 @@
     "tankLight": { "size": 5.5, "measure": "length" },
     "tankHeavy": { "size": 6.5, "measure": "length" },
     "artillery": { "size": 5.5, "measure": "length" },
-    "harvester": { "size": 6.0, "measure": "length" }
+    "harvester": { "size": 6.0, "measure": "length" },
+    "scout":     { "size": 4.6, "measure": "length" }
   },
   "buildings": {
     "small":  { "cells": 2 },

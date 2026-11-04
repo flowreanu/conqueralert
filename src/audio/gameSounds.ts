@@ -5,6 +5,7 @@ import type { Vision } from "../sim/vision";
 const FIRE: Record<string, Sfx> = {
   rifleUsa: "rifle", rifleUssr: "rifle2", cannon90: "cannon", cannon120x2: "cannon2",
   howitzer: "howitzer", v3: "v3", rockets: "v3", turretGun: "turret",
+  bazooka: "rocketAt", rpg7: "rocketAt", mgUsa: "mg", mgUssr: "mg",
 };
 
 /** Sunetele bătăliei, poziționate față de centrul camerei (volum după distanță, stânga/dreapta după poziție). */

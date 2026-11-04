@@ -82,6 +82,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2026; fon
 .cameo.busy { filter: brightness(.65); }
 .sb-info { padding: 7px 9px 7px 11px; font-size: 11px; min-height: 66px; }
 .ib-name { font: 700 13px/1.2 var(--disp); letter-spacing: .03em; margin-bottom: 5px; color: #fff; }
+.ib-name .rank { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #14181c; color: #f3c74a; font-weight: 800; letter-spacing: -.05em; transform: rotate(-90deg) translateX(1px); }
+.ib-name .rank.r4 { transform: none; letter-spacing: 0; }
 .ib-hp { height: 6px; background: #2a1d1d; overflow: hidden; margin-bottom: 5px; border: 1px solid #000; }
 .ib-hp > div { height: 100%; background: linear-gradient(#8cf07a, #3fae35); }
 .ib-hp.ore > div { background: linear-gradient(#ffd36b, #c6901f); }

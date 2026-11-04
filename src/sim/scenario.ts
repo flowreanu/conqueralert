@@ -95,6 +95,7 @@ const START_ARMY: Record<string, string[]> = {
 /**
  * Meciul skirmish (S4): ambii jucători pornesc la fel — Centrul de Construcție, 2 tancuri, 3 soldați, 5000 $.
  * SUA e mereu la vest și URSS la est (bazele hărții); jucătorul uman e indexul 0.
+ * Din S5 harta e simetrică prin rotire, deci startul e identic pentru ambele baze.
  */
 export function createMatchWorld(opts: MatchOptions): World {
   const seed = opts.seed ?? 1337;
@@ -113,7 +114,8 @@ export function createMatchWorld(opts: MatchOptions): World {
     const spots: [number, number][] = [[6, -4], [6, -1], [4, 3], [5.5, 3], [7, 3]];
     START_ARMY[p.faction].forEach((t, i) => {
       const [dx, dy] = spots[i];
-      w.spawnUnit(t, p.index, (base.cx + dx * dir) * cs, (base.cy + dy) * cs, heading);
+      // harta e rotită la 180° → și pozițiile de start (x și z) sunt în oglindă
+      w.spawnUnit(t, p.index, (base.cx + dx * dir) * cs, (base.cy + dy * dir) * cs, heading);
     });
   });
   return w;

@@ -1,10 +1,17 @@
 import { Color3, Matrix, Mesh, MeshBuilder, Scene, StandardMaterial, TargetCamera, Vector3 } from "../render/babylon";
-import { BUILDING_DEFS, UNIT_DEFS, World, entityRadius } from "../sim/world";
+import { BUILDING_DEFS, Building, UNIT_DEFS, World, entityRadius } from "../sim/world";
 import { buildingCells, placementCells } from "../sim/economy";
 
 const ATTACK_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><g fill="none" stroke="#ff3b30" stroke-width="2.5"><circle cx="16" cy="16" r="9"/><path d="M16 2v9M16 21v9M2 16h9M21 16h9"/></g></svg>',
 )}") 16 16, crosshair`;
+/** S5: intră în clădire (săgeată verde) / capturează (inginer, cheie galbenă) */
+const ENTER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><g fill="#5dff6a" stroke="#0b2a0e" stroke-width="1.5"><path d="M6 4h14v24H6z" fill="none" stroke="#5dff6a" stroke-width="2.5"/><path d="M14 16h12M21 10l6 6-6 6" fill="none" stroke="#5dff6a" stroke-width="3"/></g></svg>',
+)}") 16 16, pointer`;
+const CAPTURE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><g fill="none" stroke="#ffd23a" stroke-width="3"><circle cx="11" cy="11" r="6"/><path d="M15 15l12 12M22 22l-3 3M26 26l-3 3"/></g></svg>',
+)}") 16 16, pointer`;
 import { EntityRenderer } from "../render/entities";
 import { RtsCamera } from "../render/camera";
 import type { Vision } from "../sim/vision";
@@ -158,9 +165,12 @@ export class InputController {
     } else {
       this.cam.edgeScroll = true;
       const own = this.pickUnit(e.clientX, e.clientY);
-      const enemy = own ? 0 : this.pickEnemy(e.clientX, e.clientY);
+      const bld = own ? null : this.pickBuilding(e.clientX, e.clientY);
+      const enter = bld && this.sel.size && !e.ctrlKey ? this.enterersFor(bld) : null;
+      const enemy = own ? 0 : this.pickEnemy(e.clientX, e.clientY, e.ctrlKey);
       const ownB = own || enemy ? 0 : this.pickOwnBuilding(e.clientX, e.clientY);
-      this.view.hovered = own || enemy || ownB;
+      this.view.hovered = own || enemy || ownB || (bld?.id ?? 0);
+      if (enter?.length) { this.canvas.style.cursor = enter.some((u) => UNIT_DEFS[u.type].engineer) ? CAPTURE_CURSOR : ENTER_CURSOR; return; }
       if (ownB && !this.sel.size) { this.canvas.style.cursor = "pointer"; return; }
       this.canvas.style.cursor = (this.amoveMode || e.ctrlKey) && this.sel.size ? ATTACK_CURSOR : own ? "pointer" : enemy && this.sel.size ? ATTACK_CURSOR : this.sel.size ? "crosshair" : "default";
     }
@@ -242,7 +252,21 @@ export class InputController {
       return;
     }
     if (!this.sel.size) return;
-    const enemy = this.pickEnemy(cx, cy);
+    // S5: casă (ocupă) / clădire inamică sau puț (inginerul capturează) / clădire proprie avariată (inginerul repară)
+    const bld = amove ? null : this.pickBuilding(cx, cy);
+    const enterers = bld ? this.enterersFor(bld) : [];
+    if (bld && enterers.length) {
+      const ids = enterers.map((u) => u.id);
+      this.world.issue({ kind: "enter", player: this.player, unitIds: ids, targetId: bld.id });
+      const rest = [...this.sel].filter((id) => !ids.includes(id));
+      if (rest.length) {
+        if (bld.owner >= 0 && bld.owner !== this.player) this.world.issue({ kind: "attack", player: this.player, unitIds: rest, targetId: bld.id });
+        else this.world.issue({ kind: "move", player: this.player, unitIds: rest, x: bld.x, z: bld.z });
+      }
+      this.flashMarker(bld.x, bld.z);
+      return;
+    }
+    const enemy = this.pickEnemy(cx, cy, amove);
     if (enemy) {
       const t = this.world.entity(enemy)!;
       this.world.issue({ kind: "attack", player: this.player, unitIds: [...this.sel], targetId: enemy });
@@ -274,14 +298,27 @@ export class InputController {
 
   /** Clădire proprie sub cursor. */
   private pickOwnBuilding(cx: number, cy: number): number {
+    const b = this.pickBuilding(cx, cy);
+    return b && b.owner === this.player ? b.id : 0;
+  }
+
+  /** Orice clădire vizibilă sub cursor (proprie, inamică, civilă). */
+  private pickBuilding(cx: number, cy: number): Building | null {
     const p = this.groundPoint(cx, cy);
-    if (!p) return 0;
+    if (!p) return null;
     const cs = this.world.map.cellSize;
     for (const b of this.world.buildings.values()) {
-      if (b.owner !== this.player) continue;
-      if (p.x >= b.cx * cs && p.x <= (b.cx + b.cells) * cs && p.z >= b.cy * cs && p.z <= (b.cy + b.cells) * cs) return b.id;
+      if (this.vision && !this.vision.buildingVisible(b)) continue;
+      if (p.x >= b.cx * cs && p.x <= (b.cx + b.cw) * cs && p.z >= b.cy * cs && p.z <= (b.cy + b.ch) * cs) return b;
     }
-    return 0;
+    return null;
+  }
+
+  /** Unitățile selectate care pot intra în clădire (ocupare / capturare / reparare). */
+  private enterersFor(b: Building) {
+    const out = [];
+    for (const id of this.sel) { const u = this.world.units.get(id); if (u && this.world.enterAction(u, b)) out.push(u); }
+    return out;
   }
 
   /** Animația markerului de mișcare (se strânge și dispare). */
@@ -335,18 +372,13 @@ export class InputController {
     return out;
   }
 
-  /** Unitate sau clădire inamică sub cursor (0 = nimic). */
-  private pickEnemy(cx: number, cy: number): number {
+  /** Unitate sau clădire inamică sub cursor (0 = nimic). Clădirile civile libere doar cu `force` (Ctrl / attack-move). */
+  private pickEnemy(cx: number, cy: number, force = false): number {
     const u = this.pickUnit(cx, cy, true);
     if (u) return u;
-    const p = this.groundPoint(cx, cy);
-    if (!p) return 0;
-    const cs = this.world.map.cellSize;
-    for (const b of this.world.buildings.values()) {
-      if (b.owner === this.player || (this.vision && !this.vision.buildingVisible(b))) continue;
-      if (p.x >= b.cx * cs && p.x <= (b.cx + b.cells) * cs && p.z >= b.cy * cs && p.z <= (b.cy + b.cells) * cs) return b.id;
-    }
-    return 0;
+    const b = this.pickBuilding(cx, cy);
+    if (!b || b.owner === this.player || (b.owner < 0 && !force)) return 0;
+    return b.id;
   }
 
   /** Cea mai apropiată unitate (proprie sau inamică) de cursor, în raza ei proiectată pe ecran. */

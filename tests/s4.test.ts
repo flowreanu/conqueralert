@@ -186,6 +186,10 @@ describe("S4.1 — echilibrare", () => {
   const duel = (a: [string, number][], b: [string, number][]) => {
     const w = createSkirmishWorld();
     for (const u of [...w.units.values()]) w.units.delete(u.id);
+    // teren deschis: fără copaci / clădiri civile (din S5 harta e alta, duelul nu trebuie să depindă de decor)
+    for (const b of [...w.buildings.values()]) if (b.owner < 0) w.removeBuilding(b);
+    w.map.blocked.forEach((v, i) => { if (v === 1) w.map.blocked[i] = 0; });
+    w.paths.invalidate();
     const place = (list: [string, number][], p: number, x0: number) => { let i = 0; for (const [t, n] of list) for (let k = 0; k < n; k++, i++) w.spawnUnit(t, p, x0 + Math.floor(i / 7) * 2.5 * (p ? 1 : -1), 80 + (i % 7) * 3, p ? Math.PI : 0); };
     place(a, 0, 22); place(b, 1, 60);
     const ids = (p: number) => units(w, p).map((u) => u.id);

@@ -33,8 +33,12 @@ export interface UnitDef {
   prereq?: string[];
   /** recoltor: capacitatea (credite) */
   capacity?: number;
-  /** piese animate speciale în randare (ex. „v3” = racheta de pe camion) */
+  /** piese animate speciale în randare (ex. „v3” = racheta de pe camion, „mg” = mitraliera de pe cercetaș) */
   rig?: string;
+  /** infanterie care poate ocupa clădiri civile (S5) */
+  garrison?: boolean;
+  /** inginer: capturează clădiri inamice / puțuri de petrol, repară clădirile proprii (S5) */
+  engineer?: boolean;
 }
 export interface BuildingDef {
   name: string;
@@ -46,7 +50,7 @@ export interface BuildingDef {
   cost: number;
   /** + produce, − consumă */
   power: number;
-  category: "structure" | "defense";
+  category: "structure" | "defense" | "civilian";
   prereq?: string[];
   buildable?: boolean;
   /** unitate gratuită la plasare (rafinăria → recoltor), per facțiune */
@@ -56,6 +60,12 @@ export interface BuildingDef {
   needsPower?: boolean;
   /** modelul se rotește spre țintă (turelă) */
   rotates?: boolean;
+  /** clădire civilă: câți soldați încap înăuntru (S5) */
+  garrison?: number;
+  /** clădire civilă capturabilă de ingineri (puțul de petrol) */
+  capturable?: boolean;
+  /** credite / s pentru proprietar (puțul de petrol) */
+  income?: number;
 }
 export interface WeaponDef {
   name: string;
@@ -116,6 +126,11 @@ export interface Unit {
   amove: { x: number; z: number } | null;
   /** locul de unde a pornit urmărirea unei ținte găsite singură (riposte / attack-move); null = ordin explicit */
   leash: { x: number; z: number } | null;
+  /** clădirea în care intră (ocupare / capturare / reparare), 0 = niciuna */
+  enterId: number;
+  /** experiența (valoarea în credite a ce a distrus) și rangul: 0 recrut, 1–3 săgeți, 4 = elită (steluță) */
+  xp: number;
+  rank: number;
 }
 
 export interface Building {
@@ -146,6 +161,14 @@ export interface Building {
   repairing: boolean;
   /** tick-ul plasării (pentru animația de construcție) */
   bornTick: number;
+  /** amprenta în celule (cw × ch); clădirile normale sunt pătrate (= cells) */
+  cw: number;
+  ch: number;
+  /** soldații dinăuntru (clădirile civile ocupate) */
+  garrison: Unit[];
+  /** clădirile civile: modelul și rotația lui (pentru randare) */
+  model?: string;
+  rot?: number;
 }
 
 export type Entity = Unit | Building;
@@ -156,6 +179,9 @@ export interface Projectile {
   weapon: string;
   sourceId: number;
   targetId: number;
+  /** unitatea care primește experiența (0 = niciuna) și multiplicatorul de damage al rangului */
+  creditId: number;
+  dmgMul: number;
   x: number; y: number; z: number;
   prevX: number; prevY: number; prevZ: number;
   sx: number; sy: number; sz: number; // start
@@ -175,6 +201,10 @@ export type SimEvent =
   | { kind: "sold"; player: number; id: number; type: string }
   /** o clădire / un recoltor al jucătorului a fost lovit (pentru notificarea „baza e atacată”) */
   | { kind: "hit"; player: number; id: number; x: number; z: number }
+  /** S5: unitatea a intrat într-o clădire (dispare din lume fără animația de moarte) */
+  | { kind: "entered"; player: number; unitId: number; buildingId: number; action: "garrison" | "capture" | "repair"; from: number }
+  | { kind: "evacuated"; player: number; buildingId: number }
+  | { kind: "promoted"; player: number; id: number; rank: number }
   | { kind: "defeated"; player: number };
 
 export interface PlayerStats {
@@ -209,7 +239,26 @@ export type Command =
   | { kind: "place"; player: number; item: string; cx: number; cy: number }
   | { kind: "rally"; player: number; buildingId: number; x: number; z: number }
   | { kind: "sell"; player: number; buildingId: number }
-  | { kind: "repair"; player: number; buildingId: number };
+  | { kind: "repair"; player: number; buildingId: number }
+  /** S5: intră în clădire (infanteria ocupă o casă, inginerul capturează / repară) */
+  | { kind: "enter"; player: number; unitIds: number[]; targetId: number }
+  /** S5: soldații ies din clădirea ocupată */
+  | { kind: "evacuate"; player: number; buildingId: number };
+
+/** Proprietarul clădirilor civile libere. */
+export const NEUTRAL = -1;
+/** S5: ranguri — pragurile de experiență (× costul propriu) și bonusurile pe rang */
+export const RANK_XP = [0, 2, 4, 7, 11];
+export const RANK_DAMAGE = [1, 1.1, 1.2, 1.3, 1.5];
+export const RANK_COOLDOWN = [1, 0.92, 0.85, 0.78, 0.7];
+export const RANK_HP = [1, 1.1, 1.2, 1.3, 1.5];
+/** elita (steluța) se repară singură: fracțiune din viață / s */
+export const ELITE_REGEN = 0.015;
+export const RANK_NAMES = ["Recrut", "Veteran", "Veteran II", "Veteran III", "Elită"];
+/** soldații dintr-o clădire trag mai departe (ca în RA2) */
+export const GARRISON_RANGE_BONUS = 6;
+/** valoarea (experiență) unei clădiri civile ocupate, distruse */
+const CIV_VALUE = 400;
 
 const BIG_RADIUS = 1.2;
 
@@ -229,6 +278,8 @@ export class World {
   /** boți / alte surse de comenzi */
   controllers: Controller[] = [];
   readonly paths: PathFinder;
+  /** unitate → clădirea civilă în care se află */
+  readonly inside = new Map<number, number>();
   private rng: Rng;
   private nextId = 1;
   private pending: Command[] = [];
@@ -239,6 +290,28 @@ export class World {
     this.eco = players.map(() => newEco());
     this.stats = players.map(() => newStats());
     this.defeated = players.map(() => false);
+    this.spawnCivilians();
+  }
+
+  /** Unitate din lume sau dintr-o clădire ocupată. */
+  findUnit(id: number): Unit | undefined {
+    const u = this.units.get(id);
+    if (u) return u;
+    const b = this.buildings.get(this.inside.get(id) ?? 0);
+    return b?.garrison.find((o) => o.id === id);
+  }
+
+  /** Ce poate face unitatea `u` cu clădirea `b` (null = nimic). */
+  enterAction(u: Unit, b: Building): "garrison" | "capture" | "repair" | null {
+    const def = UNIT_DEFS[u.type], bdef = BUILDING_DEFS[b.type];
+    if (def.engineer) {
+      if (bdef.category === "civilian") return bdef.capturable && b.owner !== u.owner ? "capture" : null;
+      if (b.owner !== u.owner && b.owner >= 0) return "capture";
+      if (b.owner === u.owner && b.hp < b.maxHp) return "repair";
+      return null;
+    }
+    if (def.garrison && bdef.garrison && (b.owner === NEUTRAL || b.owner === u.owner) && b.garrison.length < bdef.garrison) return "garrison";
+    return null;
   }
 
   entity(id: number): Entity | undefined {
@@ -273,6 +346,9 @@ export class World {
       harv: def.capacity ? newHarv(false) : null,
       amove: null,
       leash: null,
+      enterId: 0,
+      xp: 0,
+      rank: 0,
     };
     this.units.set(u.id, u);
     return u;
@@ -297,9 +373,32 @@ export class World {
       hp: def.hp, maxHp: def.hp,
       attackId: 0, cooldown: 0, burstLeft: 0, burstTimer: 0, scanTimer: 0,
       rally: null, dockId: 0, repairing: false, bornTick: this.tick,
+      cw: cells, ch: cells, garrison: [],
     };
     this.buildings.set(b.id, b);
     return b;
+  }
+
+  /** Clădire civilă neutră (casă / magazin / puț de petrol). Celulele sunt deja blocate de generatorul hărții. */
+  addCivilian(type: string, cx: number, cy: number, cw: number, ch: number, x: number, z: number, model?: string, rot = 0): Building {
+    const def = BUILDING_DEFS[type];
+    const b: Building = {
+      kind: "building", id: this.nextId++, type, owner: NEUTRAL, faction: "neutral", cx, cy, cells: Math.max(cw, ch),
+      x, z, heading: 0, facing: 0, hp: def.hp, maxHp: def.hp,
+      attackId: 0, cooldown: 0, burstLeft: 0, burstTimer: 0, scanTimer: 0,
+      rally: null, dockId: 0, repairing: false, bornTick: 0,
+      cw, ch, garrison: [], model, rot,
+    };
+    for (let y = cy; y < cy + ch; y++) for (let xx = cx; xx < cx + cw; xx++) this.map.blocked[idx(this.map, xx, y)] = 1;
+    this.buildings.set(b.id, b);
+    return b;
+  }
+
+  /** Clădirile civile de pe hartă (case, magazine, puțuri) devin entități neutre. */
+  private spawnCivilians() {
+    const cs = this.map.cellSize;
+    for (const c of this.map.civ ?? []) this.addCivilian(c.kind === "shop" ? "civShop" : "civHouse", c.cx, c.cy, c.cw, c.ch, c.x, c.z, c.model, c.rot);
+    for (const t of this.map.tech ?? []) this.addCivilian("derrick", t.cx, t.cy, 2, 2, (t.cx + 1) * cs, (t.cy + 1) * cs);
   }
 
   issue(cmd: Command) {
@@ -319,7 +418,10 @@ export class World {
     }
     for (const u of this.units.values()) this.thinkUnit(u);
     this.separate();
-    for (const b of this.buildings.values()) if (BUILDING_DEFS[b.type].weapon) this.thinkBuilding(b);
+    for (const b of this.buildings.values()) {
+      if (BUILDING_DEFS[b.type].weapon) this.thinkBuilding(b);
+      else if (b.garrison.length) this.thinkGarrison(b);
+    }
     this.stepProjectiles();
     if (this.tick % TICK_RATE === 0) this.checkVictory();
     this.tick++;
@@ -329,7 +431,8 @@ export class World {
   private checkVictory() {
     if (this.winner >= 0) return;
     const alive = this.players.map(() => false);
-    for (const b of this.buildings.values()) alive[b.owner] = true;
+    // clădirile civile nu țin jucătorul în viață, doar soldații din ele
+    for (const b of this.buildings.values()) if (b.owner >= 0 && (BUILDING_DEFS[b.type].category !== "civilian" || b.garrison.length)) alive[b.owner] = true;
     for (const u of this.units.values()) if (UNIT_DEFS[u.type].weapon) alive[u.owner] = true;
     alive.forEach((a, p) => {
       if (!a && !this.defeated[p]) { this.defeated[p] = true; this.events.push({ kind: "defeated", player: p }); }
@@ -351,8 +454,25 @@ export class World {
 
   private apply(cmd: Command) {
     if (applyEcoCommand(this, cmd)) return;
-    if (cmd.kind !== "move" && cmd.kind !== "amove" && cmd.kind !== "attack" && cmd.kind !== "stop") return;
+    if (cmd.kind === "evacuate") {
+      const b = this.buildings.get(cmd.buildingId);
+      if (b && b.owner === cmd.player && b.garrison.length) this.evacuate(b);
+      return;
+    }
+    if (cmd.kind !== "move" && cmd.kind !== "amove" && cmd.kind !== "attack" && cmd.kind !== "stop" && cmd.kind !== "enter") return;
     const units = cmd.unitIds.map((id) => this.units.get(id)).filter((u): u is Unit => !!u && u.owner === cmd.player);
+    for (const u of units) u.enterId = 0;
+    if (cmd.kind === "enter") {
+      const b = this.buildings.get(cmd.targetId);
+      if (!b) return;
+      for (const u of units) {
+        if (!this.enterAction(u, b)) continue;
+        u.enterId = b.id; u.attackId = 0; u.attackOrdered = false; u.amove = null; u.leash = null; u.repathTimer = 0;
+        const door = this.doorOf(b, u);
+        this.setDestination(u, door.x, door.z);
+      }
+      return;
+    }
     if (cmd.kind === "stop") {
       for (const u of units) {
         u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false; u.amove = null; u.leash = null;
@@ -400,6 +520,8 @@ export class World {
 
   private thinkUnit(u: Unit) {
     const def = UNIT_DEFS[u.type];
+    if (u.rank >= 4 && u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * ELITE_REGEN * DT);
+    if (u.enterId && this.thinkEnter(u, def)) return;
     if (u.harv) {
       if (u.harv.auto) thinkHarvester(this, u, def);
       this.followPath(u, def);
@@ -500,7 +622,7 @@ export class World {
     u.heading = normAngle(u.heading + clamp(diff, -maxTurn, maxTurn));
     const remaining = Math.abs(angleDiff(want, u.heading));
     // Vehiculele se întorc pe loc dacă unghiul e mare, apoi accelerează; infanteria merge direct.
-    const factor = def.role === "infantry" ? 1 : remaining > Math.PI / 4 ? 0 : Math.cos(remaining);
+    const factor = def.armor === "infantry" ? 1 : remaining > Math.PI / 4 ? 0 : Math.cos(remaining);
     if (factor <= 0) { u.moving = false; return; }
 
     const s = Math.min(def.speed * DT * factor, d);
@@ -594,6 +716,148 @@ export class World {
     }
   }
 
+  // ─────────────────────────── ocupare / capturare (S5) ───────────────────────────
+
+  /** Punctul liber de lângă clădire, pe partea dinspre unitate. */
+  private doorOf(b: Building, u: { x: number; z: number }): { x: number; z: number } {
+    const cs = this.map.cellSize;
+    const x0 = b.cx * cs, x1 = (b.cx + b.cw) * cs, z0 = b.cy * cs, z1 = (b.cy + b.ch) * cs;
+    const px = clamp(u.x, x0, x1), pz = clamp(u.z, z0, z1);
+    let dx = px - b.x, dz = pz - b.z;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d; dz /= d;
+    return nearestPassable(this.map, px + dx * cs * 0.7, pz + dz * cs * 0.7);
+  }
+
+  /** Distanța de la punct la amprenta clădirii (0 = înăuntru). */
+  rectDist(b: Building, x: number, z: number): number {
+    const cs = this.map.cellSize;
+    const dx = Math.max(b.cx * cs - x, 0, x - (b.cx + b.cw) * cs);
+    const dz = Math.max(b.cy * cs - z, 0, z - (b.cy + b.ch) * cs);
+    return Math.hypot(dx, dz);
+  }
+
+  /** Unitatea merge spre clădire și intră. Întoarce true dacă s-a ocupat de unitate în acest tick. */
+  private thinkEnter(u: Unit, def: UnitDef): boolean {
+    const b = this.buildings.get(u.enterId);
+    const action = b ? this.enterAction(u, b) : null;
+    if (!b || !action) { u.enterId = 0; u.target = null; u.path = []; u.moving = false; return true; }
+    if (this.rectDist(b, u.x, u.z) <= def.radius + 1.6) {
+      this.enter(u, b, action);
+      return true;
+    }
+    // a ajuns la „ușă”, dar e blocat / clădirea s-a mutat (alt drum) → recalculează din când în când
+    if (!u.target || --u.repathTimer <= 0) {
+      u.repathTimer = 30;
+      const door = this.doorOf(b, u);
+      this.setDestination(u, door.x, door.z);
+      if (!u.target) { u.enterId = 0; return false; }
+    }
+    this.followPath(u, def);
+    return true;
+  }
+
+  private enter(u: Unit, b: Building, action: "garrison" | "capture" | "repair") {
+    const from = b.owner;
+    this.units.delete(u.id);
+    u.enterId = 0; u.target = null; u.path = []; u.moving = false; u.attackId = 0;
+    if (action === "garrison") {
+      u.x = b.x; u.z = b.z; u.cooldown = 0;
+      b.garrison.push(u);
+      this.inside.set(u.id, b.id);
+      b.owner = u.owner;
+      b.faction = u.faction;
+    } else if (action === "capture") {
+      b.owner = u.owner;
+      b.faction = this.players[u.owner].faction;
+      b.rally = null; b.repairing = false; b.attackId = 0; b.dockId = 0;
+      if (BUILDING_DEFS[b.type].category !== "civilian") { this.stats[u.owner].buildingsKilled++; if (from >= 0) this.stats[from].buildingsLost++; }
+    } else {
+      b.hp = b.maxHp;
+      b.repairing = false;
+    }
+    this.events.push({ kind: "entered", player: u.owner, unitId: u.id, buildingId: b.id, action, from });
+  }
+
+  /** Soldații ies din clădire (ordin sau clădire distrusă); clădirea redevine neutră. */
+  evacuate(b: Building) {
+    const out = b.garrison.splice(0);
+    const cs = this.map.cellSize;
+    const R = (Math.max(b.cw, b.ch) * cs) / 2 + 1.2;
+    out.forEach((u, i) => {
+      const a = (i / Math.max(1, out.length)) * Math.PI * 2 + 0.4;
+      const p = nearestPassable(this.map, b.x + Math.cos(a) * R, b.z + Math.sin(a) * R);
+      u.x = u.prevX = p.x; u.z = u.prevZ = p.z;
+      u.heading = u.prevHeading = a;
+      u.target = null; u.path = []; u.moving = false; u.attackId = 0; u.attackOrdered = false; u.amove = null; u.leash = null;
+      u.burstLeft = 0; u.stuckTicks = 0; u.lastAttacker = 0;
+      this.inside.delete(u.id);
+      this.units.set(u.id, u);
+    });
+    const player = b.owner;
+    if (BUILDING_DEFS[b.type].garrison) { b.owner = NEUTRAL; b.faction = "neutral"; b.attackId = 0; }
+    if (player >= 0) this.events.push({ kind: "evacuated", player, buildingId: b.id });
+  }
+
+  /** Soldații dintr-o clădire trag pe ferestre, fiecare cu arma lui (rază + bonus). */
+  private thinkGarrison(b: Building) {
+    let maxRange = 0;
+    for (const o of b.garrison) {
+      if (o.cooldown > 0) o.cooldown -= DT;
+      const w = WEAPONS[UNIT_DEFS[o.type].weapon!];
+      maxRange = Math.max(maxRange, w.range + GARRISON_RANGE_BONUS);
+    }
+    let t = b.attackId ? this.entity(b.attackId) : undefined;
+    if (t && (t.owner === b.owner || t.owner < 0 || this.rangeTo(b, t) > maxRange)) t = undefined;
+    if (!t) {
+      b.attackId = 0;
+      if (--b.scanTimer <= 0) {
+        b.scanTimer = 5;
+        const f = this.findTarget(b, maxRange, 0);
+        if (f) { b.attackId = f.id; t = f; }
+      }
+    }
+    if (!t) return;
+    b.heading = Math.atan2(t.z - b.z, t.x - b.x);
+    b.garrison.forEach((o, i) => {
+      const wid = UNIT_DEFS[o.type].weapon!;
+      const w = WEAPONS[wid];
+      if (o.cooldown > 0 || this.rangeTo(b, t!) > w.range + GARRISON_RANGE_BONUS) return;
+      o.cooldown = w.cooldown * RANK_COOLDOWN[o.rank];
+      // „fereastra”: un punct pe marginea clădirii, spre țintă, la etaj
+      const side = (i - (b.garrison.length - 1) / 2) * 0.9;
+      const r = (Math.min(b.cw, b.ch) * this.map.cellSize) / 2;
+      const mx = b.x + Math.cos(b.heading) * r - Math.sin(b.heading) * side;
+      const mz = b.z + Math.sin(b.heading) * r + Math.cos(b.heading) * side;
+      this.launch(b, o.id, wid, w, t!, mx, 3.2, mz, RANK_DAMAGE[o.rank]);
+    });
+  }
+
+  // ─────────────────────────── ranguri (S5) ───────────────────────────
+
+  /** Experiență pentru unitatea care a distrus ținta (valoarea țintei în credite). */
+  private award(creditId: number, victim: Entity) {
+    if (victim.owner < 0) return;
+    const u = this.findUnit(creditId);
+    if (!u || u.owner === victim.owner || !UNIT_DEFS[u.type].weapon) return;
+    const bdef = victim.kind === "building" ? BUILDING_DEFS[victim.type] : null;
+    const value = victim.kind === "unit" ? UNIT_DEFS[victim.type].cost : bdef!.category === "civilian" ? CIV_VALUE : bdef!.cost;
+    this.giveXp(u, value);
+  }
+
+  giveXp(u: Unit, value: number) {
+    const cost = UNIT_DEFS[u.type].cost;
+    u.xp += value;
+    const before = u.rank;
+    while (u.rank < 4 && u.xp >= cost * RANK_XP[u.rank + 1]) u.rank++;
+    if (u.rank === before) return;
+    // viața maximă crește; viața curentă crește cu aceeași diferență
+    const max = UNIT_DEFS[u.type].hp * RANK_HP[u.rank];
+    u.hp += max - u.maxHp;
+    u.maxHp = max;
+    this.events.push({ kind: "promoted", player: u.owner, id: u.id, rank: u.rank });
+  }
+
   // ─────────────────────────── clădiri ───────────────────────────
 
   private thinkBuilding(b: Building) {
@@ -622,11 +886,11 @@ export class World {
   private findTarget(s: Entity, range: number, minRange: number): Entity | null {
     let best: Entity | null = null, bd = Infinity;
     const consider = (e: Entity) => {
-      if (e.owner === s.owner) return;
+      if (e.owner === s.owner || e.owner < 0) return;
       const d = this.rangeTo(s, e);
       if (d > range || dist(s, e) < minRange) return;
       // preferă unitățile înarmate și pe cele apropiate
-      const armed = e.kind === "unit" ? !!UNIT_DEFS[e.type].weapon : !!BUILDING_DEFS[e.type].weapon;
+      const armed = e.kind === "unit" ? !!UNIT_DEFS[e.type].weapon : !!BUILDING_DEFS[e.type].weapon || e.garrison.length > 0;
       const score = d - (armed ? 6 : 0);
       if (score < bd || (score === bd && best && e.id < best.id)) { bd = score; best = e; }
     };
@@ -641,7 +905,7 @@ export class World {
   }
 
   private fire(s: Entity, w: WeaponDef, t: Entity) {
-    s.cooldown = w.cooldown;
+    s.cooldown = w.cooldown * (s.kind === "unit" ? RANK_COOLDOWN[s.rank] : 1);
     s.attackId = t.id;
     s.burstLeft = (w.burst ?? 1);
     s.burstTimer = 0;
@@ -660,16 +924,21 @@ export class World {
     const mx = s.x + Math.cos(h) * w.muzzle[0] - Math.sin(h) * side;
     const mz = s.z + Math.sin(h) * w.muzzle[0] + Math.cos(h) * side;
     const my = w.muzzle[1];
+    this.launch(s, s.kind === "unit" ? s.id : 0, weaponIdOf(w), w, t, mx, my, mz, s.kind === "unit" ? RANK_DAMAGE[s.rank] : 1);
+  }
+
+  /** Proiectil nou. `s` = sursa (pentru ripostă); `creditId` = unitatea care primește experiența. */
+  private launch(s: Entity, creditId: number, wid: string, w: WeaponDef, t: Entity, mx: number, my: number, mz: number, dmgMul: number) {
     let tx = t.x, tz = t.z;
     if (w.scatter) { tx += this.rng.range(-w.scatter, w.scatter); tz += this.rng.range(-w.scatter, w.scatter); }
     const d = Math.hypot(tx - mx, tz - mz);
     const dur = Math.max(DT, d / w.speed) + (w.projectile === "arc" ? 0.4 : 0);
     const p: Projectile = {
-      id: this.nextId++, owner: s.owner, weapon: weaponIdOf(w), sourceId: s.id, targetId: t.id,
+      id: this.nextId++, owner: s.owner, weapon: wid, sourceId: s.id, targetId: t.id, creditId, dmgMul,
       x: mx, y: my, z: mz, prevX: mx, prevY: my, prevZ: mz, sx: mx, sy: my, sz: mz, tx, tz, t: 0, dur,
     };
     this.projectiles.set(p.id, p);
-    this.events.push({ kind: "fire", weapon: p.weapon, x: mx, y: my, z: mz, heading: h, sourceId: s.id });
+    this.events.push({ kind: "fire", weapon: wid, x: mx, y: my, z: mz, heading: Math.atan2(tz - mz, tx - mx), sourceId: s.id });
   }
 
   private stepProjectiles() {
@@ -708,28 +977,30 @@ export class World {
         const r = v.kind === "unit" ? UNIT_DEFS[v.type].radius : entityRadius(v, this.map.cellSize);
         const d = Math.max(0, Math.hypot(v.x - p.tx, v.z - p.tz) - r);
         const fall = 1 - 0.5 * Math.min(1, d / w.splash);
-        this.damage(v, w.damage * fall, w.type, p.sourceId, p.owner);
+        this.damage(v, w.damage * fall * p.dmgMul, w.type, p.sourceId, p.owner, p.creditId);
       }
     } else {
       const t = this.entity(p.targetId);
-      if (t && t.owner !== p.owner) this.damage(t, w.damage, w.type, p.sourceId, p.owner);
+      if (t && t.owner !== p.owner) this.damage(t, w.damage * p.dmgMul, w.type, p.sourceId, p.owner, p.creditId);
     }
   }
 
-  damage(e: Entity, amount: number, type: string, sourceId: number, by = -1) {
+  damage(e: Entity, amount: number, type: string, sourceId: number, by = -1, creditId = sourceId) {
     const armor: ArmorType = e.kind === "unit" ? UNIT_DEFS[e.type].armor : "building";
     const mult = VERSUS[type]?.[armor] ?? 1;
     e.hp -= amount * mult;
     if (e.kind === "unit" && sourceId) e.lastAttacker = sourceId;
-    if (e.kind === "building" || (e as Unit).harv) this.events.push({ kind: "hit", player: e.owner, id: e.id, x: e.x, z: e.z });
-    if (e.hp <= 0) this.kill(e, by);
+    if ((e.kind === "building" || (e as Unit).harv) && e.owner >= 0) this.events.push({ kind: "hit", player: e.owner, id: e.id, x: e.x, z: e.z });
+    if (e.hp <= 0) this.kill(e, by, creditId);
   }
 
-  private kill(e: Entity, by = -1) {
+  private kill(e: Entity, by = -1, creditId = 0) {
     e.hp = 0;
-    const st = this.stats[e.owner], ks = by >= 0 && by !== e.owner ? this.stats[by] : null;
-    if (e.kind === "unit") { st.unitsLost++; if (ks) ks.unitsKilled++; }
-    else { st.buildingsLost++; if (ks) ks.buildingsKilled++; }
+    if (creditId) this.award(creditId, e);
+    const civ = e.kind === "building" && BUILDING_DEFS[e.type].category === "civilian";
+    const st = e.owner >= 0 && !civ ? this.stats[e.owner] : null, ks = by >= 0 && by !== e.owner && !civ ? this.stats[by] : null;
+    if (e.kind === "unit") { if (st) st.unitsLost++; if (ks) ks.unitsKilled++; }
+    else { if (st) st.buildingsLost++; if (ks) ks.buildingsKilled++; }
     if (e.kind === "unit") {
       this.units.delete(e.id);
       if (e.harv) releaseDock(this, e);
@@ -737,13 +1008,15 @@ export class World {
     } else {
       this.removeBuilding(e);
       this.events.push({ kind: "death", id: e.id, entity: "building", type: e.type, x: e.x, z: e.z, size: e.cells * this.map.cellSize * 0.5 });
+      // casa distrusă: soldații ies afară (ca în RA2)
+      if (e.garrison.length) this.evacuate(e);
     }
   }
 
   /** Scoate clădirea din lume (distrusă sau vândută) și eliberează celulele. */
   removeBuilding(b: Building) {
     this.buildings.delete(b.id);
-    for (let y = b.cy; y < b.cy + b.cells; y++) for (let x = b.cx; x < b.cx + b.cells; x++) this.map.blocked[idx(this.map, x, y)] = 0;
+    for (let y = b.cy; y < b.cy + b.ch; y++) for (let x = b.cx; x < b.cx + b.cw; x++) this.map.blocked[idx(this.map, x, y)] = 0;
     this.paths.invalidate();
   }
 
@@ -752,8 +1025,8 @@ export class World {
     let h = 2166136261 ^ this.tick;
     const mix = (v: number) => { h ^= v; h = Math.imul(h, 16777619); };
     for (const u of this.units.values())
-      for (const v of [u.id, Math.round(u.x * 1000), Math.round(u.z * 1000), Math.round(u.heading * 1000), Math.round(u.hp * 100), u.attackId]) mix(v);
-    for (const b of this.buildings.values()) { mix(b.id); mix(Math.round(b.hp * 100)); }
+      for (const v of [u.id, Math.round(u.x * 1000), Math.round(u.z * 1000), Math.round(u.heading * 1000), Math.round(u.hp * 100), u.attackId, u.xp, u.rank]) mix(v);
+    for (const b of this.buildings.values()) { mix(b.id); mix(Math.round(b.hp * 100)); mix(b.owner); for (const o of b.garrison) mix(o.id); }
     for (const p of this.projectiles.values()) { mix(p.id); mix(Math.round(p.x * 1000)); mix(Math.round(p.z * 1000)); }
     for (const e of this.eco) { mix(Math.round(e.credits * 100)); for (const q of Object.values(e.queues)) for (const it of q) mix(Math.round(it.progress * 1e6)); }
     return h >>> 0;
@@ -761,7 +1034,7 @@ export class World {
 }
 
 export function entityRadius(e: Entity, cellSize: number): number {
-  return e.kind === "unit" ? UNIT_DEFS[e.type].radius : e.cells * cellSize * 0.5;
+  return e.kind === "unit" ? UNIT_DEFS[e.type].radius : (e.cw + e.ch) * cellSize * 0.25;
 }
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
 const u32 = (v: number) => v >>> 0;

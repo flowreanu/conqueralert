@@ -1,5 +1,5 @@
 import { Color3, InstancedMesh, Mesh, MeshBuilder, Scene, StandardMaterial, Vector3 } from "./babylon";
-import { SimEvent, World, WEAPONS } from "../sim/world";
+import { SimEvent, UNIT_DEFS, World, WEAPONS } from "../sim/world";
 import { groundHeight } from "./terrain";
 
 interface Fx {
@@ -101,7 +101,7 @@ export class EffectsRenderer {
         const y = groundHeight(this.world.map, e.x, e.z);
         const big = e.entity === "building";
         const r = e.size * (big ? 1.2 : 1.4);
-        if (e.type === "ranger" || e.type === "conscript") {
+        if (e.entity === "unit" && UNIT_DEFS[e.type]?.armor === "infantry") {
           this.spawn("dust", e.x, y + 0.5, e.z, 0.4, 1.6, 0.1, 0.9, 0.3, 0.8);
           continue;
         }

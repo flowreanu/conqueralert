@@ -1,5 +1,6 @@
 {
   "usa":   { "name": "SUA",     "primary": "#3d7fe0", "secondary": "#cdd8e2", "dark": "#2c3a46" },
   "ussr":  { "name": "URSS",    "primary": "#c23a2f", "secondary": "#8c8468", "dark": "#2d2a26" },
+  "neutral": { "name": "Civil", "primary": "#9aa0a6", "secondary": "#c9c4b8", "dark": "#4a4d52" },
   "japan": { "name": "Japonia", "primary": "#ece6d6", "secondary": "#c2263a", "dark": "#2b2b30" }
 }

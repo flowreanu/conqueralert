@@ -1,4 +1,4 @@
-import { AbstractMesh, AnimationGroup, Color3, InstancedMesh, Mesh, MeshBuilder, Scene, ShadowGenerator, StandardMaterial, TransformNode } from "./babylon";
+import { AbstractMesh, AnimationGroup, Color3, DynamicTexture, InstancedMesh, Mesh, MeshBuilder, Scene, ShadowGenerator, StandardMaterial, TransformNode } from "./babylon";
 import buildingsData from "../data/buildings.json";
 import factionsData from "../data/factions.json";
 import { Building, BUILDING_DEFS, SimEvent, Unit, UNIT_DEFS, WEAPONS, World, angleDiff } from "../sim/world";
@@ -20,6 +20,10 @@ interface UnitView {
   shootT: number;
   /** V3: racheta de pe camion (pivot la capătul din spate) */
   missile: { pivot: TransformNode; angle: number } | null;
+  /** insigna de rang (săgeți / steluță), lângă bara de viață */
+  badge: { node: TransformNode; mesh: InstancedMesh | null; rank: number } | null;
+  /** a intrat într-o clădire → dispare fără animația de moarte */
+  silent: boolean;
 }
 
 interface BuildingView {
@@ -30,6 +34,10 @@ interface BuildingView {
   /** 0..1 animația de construcție (clădirea „crește” din fundație) */
   grow: number;
   body: TransformNode;
+  /** proprietarul la crearea vederii (capturarea refacere modelele / culorile) */
+  owner: number;
+  /** clădirile civile: indicatorul de ocupare (5 „ferestre”) */
+  pips: { node: TransformNode; meshes: InstancedMesh[]; key: string } | null;
 }
 
 /** Bară de viață: fundal + umplere, orientată mereu spre cameră, desenată peste modele. */
@@ -44,6 +52,7 @@ interface HealthBar {
 const BUILDINGS = buildingsData as unknown as Record<string, { name: string; size: string; models: Record<string, string[]> }>;
 const BAR_COLORS = ["#5fd35a", "#e9c63e", "#e2453a"];
 const FACTIONS = factionsData as Record<string, { primary: string; dark: string }>;
+const PIP_EMPTY = "#22272c";
 
 /** Sincronizează lumea simulată cu scena Babylon (interpolare între tick-uri). */
 export class EntityRenderer {
@@ -62,6 +71,9 @@ export class EntityRenderer {
   vision: Vision | null = null;
   private frame: TransformNode;
   private rallyFlag: TransformNode;
+  /** S5: insignele de rang (1–3 săgeți, steluța) și „ferestrele” caselor */
+  private badgeSrc: Mesh[] = [];
+  private pipSrc = new Map<string, Mesh>();
 
   constructor(private scene: Scene, private lib: ModelLibrary, private world: World, private shadows: ShadowGenerator | null) {
     this.ringSrc = MeshBuilder.CreateTorus("selRing", { diameter: 2, thickness: 0.12, tessellation: 36 }, scene);
@@ -90,6 +102,7 @@ export class EntityRenderer {
     };
     this.barBg = flat("hpBg", "#0d1013", 1, 1);
     this.barFill = BAR_COLORS.map((c, i) => flat(`hpFill${i}`, c, 1, 1));
+    this.badgeSrc = [1, 2, 3, 4].map((r) => this.makeBadge(r));
 
     // cadru de selecție pentru clădiri (4 laturi, scalat la amprentă) + steagul punctului de adunare
     this.frame = new TransformNode("bldFrame", scene);
@@ -110,9 +123,75 @@ export class EntityRenderer {
     this.rallyFlag.setEnabled(false);
   }
 
-  /** Evenimentele simulării care privesc randarea unităților (animația de tragere). */
+  /** Evenimentele simulării care privesc randarea unităților (animația de tragere, intrarea în clădiri). */
   consume(events: SimEvent[]) {
-    for (const e of events) if (e.kind === "fire") { const v = this.views.get(e.sourceId); if (v) v.shootT = 0.6; }
+    for (const e of events) {
+      if (e.kind === "fire") { const v = this.views.get(e.sourceId); if (v) v.shootT = 0.6; }
+      else if (e.kind === "entered") { const v = this.views.get(e.unitId); if (v) v.silent = true; }
+    }
+  }
+
+  /** Insignă de rang: 1–3 săgeți aurii sau steluța elitei, pe o plăcuță întunecată. */
+  private makeBadge(rank: number): Mesh {
+    const S = 128;
+    const tex = new DynamicTexture(`badgeTex${rank}`, { width: S, height: S }, this.scene, true);
+    tex.hasAlpha = true;
+    const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
+    ctx.clearRect(0, 0, S, S);
+    ctx.fillStyle = "rgba(12,15,18,0.82)";
+    ctx.beginPath(); ctx.roundRect(10, 10, S - 20, S - 20, 18); ctx.fill();
+    ctx.strokeStyle = "#f3c74a"; ctx.fillStyle = "#f3c74a";
+    ctx.lineWidth = 13; ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+    if (rank < 4) {
+      const n = rank, gap = 24, top = S / 2 - ((n - 1) * gap) / 2 - 8;
+      for (let i = 0; i < n; i++) {
+        const y = top + i * gap;
+        ctx.beginPath(); ctx.moveTo(30, y + 22); ctx.lineTo(S / 2, y); ctx.lineTo(S - 30, y + 22); ctx.stroke();
+      }
+    } else {
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 ? 19 : 44, a = -Math.PI / 2 + (i * Math.PI) / 5;
+        ctx.lineTo(S / 2 + Math.cos(a) * r, S / 2 + 4 + Math.sin(a) * r);
+      }
+      ctx.closePath(); ctx.fill();
+    }
+    tex.update();
+    const m = MeshBuilder.CreatePlane(`badge${rank}`, { size: 1 }, this.scene);
+    const mat = new StandardMaterial(`badgeMat${rank}`, this.scene);
+    mat.emissiveTexture = tex;
+    mat.opacityTexture = tex;
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.disableLighting = true;
+    mat.backFaceCulling = false;
+    m.material = mat;
+    m.isPickable = false;
+    m.renderingGroupId = 1;
+    m.isVisible = false;
+    m.position.y = -1000;
+    return m;
+  }
+
+  /** Sursa unei „ferestre” (indicatorul de ocupare) în culoarea dată. */
+  private pip(hex: string): Mesh {
+    let m = this.pipSrc.get(hex);
+    if (!m) {
+      m = MeshBuilder.CreatePlane(`pip-${hex}`, { width: 0.55, height: 0.55 }, this.scene);
+      const mat = new StandardMaterial(`pipMat-${hex}`, this.scene);
+      mat.emissiveColor = Color3.FromHexString(hex);
+      mat.diffuseColor = Color3.Black();
+      mat.specularColor = Color3.Black();
+      mat.disableLighting = true;
+      mat.backFaceCulling = false;
+      m.material = mat;
+      m.isPickable = false;
+      m.renderingGroupId = 1;
+      m.isVisible = false;
+      m.position.y = -1000;
+      this.pipSrc.set(hex, m);
+    }
+    return m;
   }
 
   private makeBar(name: string, width: number, parent: TransformNode | null): HealthBar {
@@ -155,7 +234,7 @@ export class EntityRenderer {
     // bara de viață nu se rotește cu unitatea → nod separat, poziționat în sync()
     const bar = this.makeBar(`u${u.id}`, Math.min(3.6, Math.max(1.6, def.radius * 1.5)), null);
     bar.node.metadata = { h: t.measure === "height" ? t.size + 0.6 : 3.4 };
-    const view: UnitView = { root, ring, ready: false, bar, anim: null, dying: 0, shootT: 0, missile: null };
+    const view: UnitView = { root, ring, ready: false, bar, anim: null, dying: 0, shootT: 0, missile: null, badge: null, silent: false };
     this.views.set(u.id, view);
     let model: TransformNode;
     if (MODEL_DEFS[def.model]?.animated) {
@@ -169,11 +248,122 @@ export class EntityRenderer {
     this.castShadows(model);
     if (def.rig === "v3") { view.missile = this.buildV3Missile(u.id, root); this.castShadows(view.missile.pivot); }
     const b = model.getHierarchyBoundingVectors(true);
+    if (def.rig === "mg") this.castShadows(this.buildMg(u.id, root, b.max.y - b.min.y, b.max.x - b.min.x));
     bar.node.metadata = { h: b.max.y - b.min.y + 0.7 };
     view.ready = true;
   }
 
+  /** Mitraliera de pe acoperișul cercetașului (Humvee / BRDM): suport, scut și țeavă. */
+  private buildMg(id: number, root: TransformNode, h: number, len: number): TransformNode {
+    const n = new TransformNode(`mg${id}`, this.scene);
+    n.parent = root;
+    n.position.set(-len * 0.08, h - 0.05, 0);
+    const mat = this.cachedMat("mgDark", "#2c2f2b");
+    const parts: Mesh[] = [
+      MeshBuilder.CreateCylinder(`mgr${id}`, { height: 0.22, diameter: 0.9, tessellation: 10 }, this.scene),
+      MeshBuilder.CreateBox(`mgs${id}`, { width: 0.12, height: 0.42, depth: 0.7 }, this.scene),
+      MeshBuilder.CreateBox(`mgb${id}`, { width: 0.42, height: 0.2, depth: 0.2 }, this.scene),
+      MeshBuilder.CreateCylinder(`mgt${id}`, { height: 1.15, diameter: 0.09, tessellation: 6 }, this.scene),
+    ];
+    parts[0].position.y = 0.11;
+    parts[1].position.set(0.32, 0.42, 0);
+    parts[2].position.set(0.1, 0.42, 0);
+    parts[3].rotation.z = -Math.PI / 2;
+    parts[3].position.set(0.85, 0.42, 0);
+    for (const p of parts) { p.material = mat; p.parent = n; p.isPickable = false; }
+    return n;
+  }
+
+  /** Casă / magazin (modelul Kenney, la poziția lui de pe hartă) sau puțul de petrol; fără fundație. */
+  private async addCivBuilding(b: Building) {
+    const cs = this.world.map.cellSize;
+    const root = new TransformNode(`civ${b.id}`, this.scene);
+    root.position.set(b.x, 0, b.z);
+    root.rotation.y = b.rot ?? 0;
+    const body = new TransformNode(`civBody${b.id}`, this.scene);
+    body.parent = root;
+    const bar = this.makeBar(`b${b.id}`, Math.max(b.cw, b.ch) * cs * 0.5, null);
+    const view: BuildingView = { root, bar, head: null, grow: 1, body, owner: b.owner, pips: null };
+    this.bviews.set(b.id, view);
+    let h = 4;
+    if (b.model) {
+      const inst = await this.lib.instance(b.model, null, 1, "height", `civ${b.id}-m`);
+      if (!this.bviews.has(b.id)) { inst.dispose(); return; }
+      inst.parent = body;
+      this.castShadows(inst);
+      inst.computeWorldMatrix(true);
+      const bb = inst.getHierarchyBoundingVectors(true);
+      h = bb.max.y;
+      for (const m of inst.getChildMeshes(false)) m.receiveShadows = true;
+    } else {
+      h = this.buildDerrick(b.id, body);
+      this.castShadows(body);
+    }
+    bar.node.position.set(b.x, h + 1.4, b.z);
+    if (BUILDING_DEFS[b.type].garrison) {
+      const node = new TransformNode(`pips${b.id}`, this.scene);
+      node.billboardMode = TransformNode.BILLBOARDMODE_ALL;
+      node.position.set(b.x, h + 0.7, b.z);
+      view.pips = { node, meshes: [], key: "" };
+    }
+  }
+
+  /** Puțul de petrol, low-poly: turlă din grinzi, balansier care se mișcă, rezervor. Întoarce înălțimea. */
+  private buildDerrick(id: number, body: TransformNode): number {
+    const dark = this.cachedMat("drkSteel", "#3b3f44"), rust = this.cachedMat("drkRust", "#a4552d"), tank = this.cachedMat("drkTank", "#c8c2b2");
+    const pad = MeshBuilder.CreateBox(`dpad${id}`, { width: 3.8, depth: 3.8, height: 0.2 }, this.scene);
+    pad.position.y = 0.1;
+    pad.material = this.cachedMat("slabMat", "#9a978f");
+    pad.receiveShadows = true;
+    const parts: Mesh[] = [pad];
+    // turla: 4 picioare înclinate + traverse
+    const H = 6.2;
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const leg = MeshBuilder.CreateBox(`dleg${id}`, { width: 0.16, height: H, depth: 0.16 }, this.scene);
+      leg.position.set(-0.9 + sx * 0.55, H / 2, sz * 0.55);
+      leg.rotation.z = -sx * 0.09;
+      leg.rotation.x = sz * 0.09;
+      leg.material = rust;
+      parts.push(leg);
+    }
+    for (const y of [1.6, 3.2, 4.7]) {
+      const k = 1 - (y / H) * 0.55;
+      const ring = MeshBuilder.CreateBox(`dring${id}`, { width: 1.3 * k, height: 0.1, depth: 1.3 * k }, this.scene);
+      ring.position.set(-0.9, y, 0);
+      ring.material = rust;
+      parts.push(ring);
+    }
+    const cap = MeshBuilder.CreateBox(`dcap${id}`, { width: 0.5, height: 0.3, depth: 0.5 }, this.scene);
+    cap.position.set(-0.9, H, 0);
+    cap.material = dark;
+    // pompa (balansierul pe un suport în A)
+    const post = MeshBuilder.CreateBox(`dpost${id}`, { width: 0.2, height: 1.6, depth: 0.5 }, this.scene);
+    post.position.set(0.9, 0.9, 0.9);
+    post.material = dark;
+    const beam = MeshBuilder.CreateBox(`dbeam${id}`, { width: 2.4, height: 0.22, depth: 0.22 }, this.scene);
+    beam.position.set(0.9, 1.75, 0.9);
+    beam.material = dark;
+    const head = MeshBuilder.CreateBox(`dhead${id}`, { width: 0.35, height: 0.6, depth: 0.3 }, this.scene);
+    head.position.set(2.05, 1.6, 0.9);
+    head.material = rust;
+    const tk = MeshBuilder.CreateCylinder(`dtank${id}`, { height: 1.5, diameter: 1.3, tessellation: 14 }, this.scene);
+    tk.position.set(0.9, 0.95, -0.9);
+    tk.material = tank;
+    parts.push(cap, post, beam, head, tk);
+    for (const p of parts) { p.parent = body; p.isPickable = false; }
+    // balansierul se mișcă încet (doar vizual)
+    let t = id;
+    this.scene.onBeforeRenderObservable.add(() => {
+      t += this.scene.getEngine().getDeltaTime() / 1000;
+      const a = Math.sin(t * 1.6) * 0.22;
+      beam.rotation.z = a;
+      head.position.y = 1.6 + Math.sin(a) * 1.15;
+    });
+    return H;
+  }
+
   async addBuilding(b: Building) {
+    if (BUILDING_DEFS[b.type].category === "civilian") return this.addCivBuilding(b);
     const def = BUILDINGS[b.type];
     const cs = this.world.map.cellSize;
     const fp = b.cells * cs;
@@ -198,7 +388,7 @@ export class EntityRenderer {
     const body = new TransformNode(`bldBody${b.id}`, this.scene);
     body.parent = root;
     // clădirile plasate în timpul jocului „cresc” din fundație
-    const view: BuildingView = { root, bar, head: null, grow: this.world.tick - b.bornTick > 2 || b.bornTick === 0 ? 1 : 0, body };
+    const view: BuildingView = { root, bar, head: null, grow: this.world.tick - b.bornTick > 2 || b.bornTick === 0 ? 1 : 0, body, owner: b.owner, pips: null };
     body.scaling.y = Math.max(0.02, view.grow);
     this.bviews.set(b.id, view);
     const rotates = !!BUILDING_DEFS[b.type].rotates;
@@ -275,6 +465,28 @@ export class EntityRenderer {
     a.current = name;
   }
 
+  /** „Ferestrele” casei: câte locuri sunt ocupate, în culoarea ocupantului (ascunse când casa e goală și nu e sub cursor). */
+  private updatePips(v: BuildingView, b: Building) {
+    const cap = BUILDING_DEFS[b.type].garrison ?? 0;
+    const n = b.garrison.length;
+    const show = n > 0 || this.hovered === b.id || this.selectedBuilding === b.id;
+    // ocupanții inamici din ceață nu se văd
+    const hidden = this.vision && b.owner !== this.vision.player && !this.vision.isVisible(b.x, b.z);
+    const key = show && !hidden ? `${n}|${b.faction}` : "off";
+    if (key === v.pips!.key) return;
+    v.pips!.key = key;
+    for (const m of v.pips!.meshes) m.dispose();
+    v.pips!.meshes = [];
+    if (key === "off") return;
+    const col = FACTIONS[b.faction]?.primary ?? "#9aa0a6";
+    for (let i = 0; i < cap; i++) {
+      const m = this.pip(i < n ? col : PIP_EMPTY).createInstance(`pip${b.id}-${i}`);
+      m.parent = v.pips!.node;
+      m.position.set((i - (cap - 1) / 2) * 0.7, 0, 0);
+      v.pips!.meshes.push(m);
+    }
+  }
+
   /** alpha = fracțiunea dintre tick-ul anterior și cel curent; dt = timpul real al cadrului. */
   sync(alpha: number, dt = 1 / 60) {
     const m = this.world.map;
@@ -286,6 +498,8 @@ export class EntityRenderer {
       const u = this.world.units.get(id);
       if (!u) {
         if (this.selected.delete(id)) pruned = true;
+        // a intrat într-o clădire: dispare imediat
+        if (v.silent) { v.anim?.dispose(); v.root.dispose(); v.bar.node.dispose(); v.badge?.node.dispose(); this.views.delete(id); continue; }
         // infanteria animată: joacă moartea, apoi dispare
         if (v.anim && v.dying === 0 && v.ready) {
           v.dying = 1.8;
@@ -298,13 +512,14 @@ export class EntityRenderer {
         v.anim?.dispose();
         v.root.dispose();
         v.bar.node.dispose();
+        v.badge?.node.dispose();
         this.views.delete(id);
         continue;
       }
       // inamicii din ceață nu se văd
       const visible = !this.vision || this.vision.unitVisible(u);
       v.root.setEnabled(visible);
-      if (!visible) { v.bar.node.setEnabled(false); if (this.hovered === id) this.hovered = 0; continue; }
+      if (!visible) { v.bar.node.setEnabled(false); v.badge?.node.setEnabled(false); if (this.hovered === id) this.hovered = 0; continue; }
       if (v.anim) {
         v.shootT = Math.max(0, v.shootT - dt);
         if (u.moving) this.playAnim(v, "Run_Gun", true, 0.95);
@@ -329,11 +544,36 @@ export class EntityRenderer {
       v.ring.setEnabled(sel);
       v.bar.node.position.set(x, v.root.position.y + (v.bar.node.metadata?.h ?? 3), z);
       this.updateBar(v.bar, u.hp / u.maxHp, sel || u.hp < u.maxHp || this.hovered === id);
+      // insigna de rang: mereu vizibilă, în stânga barei de viață
+      if (u.rank > 0 || v.badge) {
+        if (!v.badge) {
+          const node = new TransformNode(`badge-u${id}`, this.scene);
+          node.billboardMode = TransformNode.BILLBOARDMODE_ALL;
+          v.badge = { node, mesh: null, rank: 0 };
+        }
+        if (v.badge.rank !== u.rank) {
+          v.badge.mesh?.dispose();
+          v.badge.mesh = u.rank ? this.badgeSrc[u.rank - 1].createInstance(`bdg${id}`) : null;
+          if (v.badge.mesh) { v.badge.mesh.parent = v.badge.node; v.badge.mesh.position.setAll(0); v.badge.mesh.scaling.setAll(u.rank === 4 ? 1.05 : 0.9); }
+          v.badge.rank = u.rank;
+        }
+        v.badge.node.setEnabled(u.rank > 0);
+        v.badge.node.position.set(x - v.bar.width / 2 - 0.7, v.bar.node.position.y, z);
+      }
     }
     for (const [id, v] of this.bviews) {
       const b = this.world.buildings.get(id);
-      if (!b) { v.root.dispose(); v.bar.node.dispose(); this.bviews.delete(id); continue; }
-      const seen = !this.vision || this.vision.buildingVisible(b);
+      if (!b) { v.root.dispose(); v.bar.node.dispose(); v.pips?.node.dispose(); this.bviews.delete(id); continue; }
+      const civ = BUILDING_DEFS[b.type].category === "civilian";
+      // capturată de un inginer → modelele și fundația noului proprietar
+      if (b.owner !== v.owner && !civ) {
+        v.root.dispose(); v.bar.node.dispose(); this.bviews.delete(id);
+        void this.addBuilding(b);
+        continue;
+      }
+      v.owner = b.owner;
+      if (v.pips) this.updatePips(v, b);
+      const seen = civ || !this.vision || this.vision.buildingVisible(b);
       v.root.setEnabled(seen);
       if (!seen) { v.bar.node.setEnabled(false); continue; }
       if (v.grow < 1) { v.grow = Math.min(1, v.grow + dt / 0.9); v.body.scaling.y = Math.max(0.02, 1 - (1 - v.grow) ** 3); }
@@ -345,12 +585,12 @@ export class EntityRenderer {
     if (this.selectedBuilding && !sb) { this.selectedBuilding = 0; pruned = true; }
     this.frame.setEnabled(!!sb);
     if (sb) {
-      const fp = sb.cells * m.cellSize + 0.3;
-      this.frame.position.set(sb.x, 0.3, sb.z);
+      const fx = sb.cw * m.cellSize + 0.3, fz = sb.ch * m.cellSize + 0.3;
+      this.frame.position.set((sb.cx + sb.cw / 2) * m.cellSize, 0.3, (sb.cy + sb.ch / 2) * m.cellSize);
       this.frame.getChildMeshes().forEach((side, i) => {
-        side.scaling.x = fp;
+        side.scaling.x = i % 2 ? fz : fx;
         const a = (i * Math.PI) / 2;
-        side.position.set(Math.sin(a) * fp * 0.5, 0, Math.cos(a) * fp * 0.5);
+        side.position.set(Math.sin(a) * fx * 0.5, 0, Math.cos(a) * fz * 0.5);
       });
     }
     const rally = sb && BUILDING_DEFS[sb.type].produces ? sb.rally : null;

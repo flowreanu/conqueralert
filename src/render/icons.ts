@@ -78,6 +78,17 @@ export async function renderIcons(engine: Engine, faction: string, items: string
           const m = await lib.instance(def.model, faction, t.size, t.measure, `iu-${item}`);
           m.parent = root;
           if (def.rig === "v3") addMissile(scene, root);
+          if (def.rig === "mg") {
+            const b = m.getHierarchyBoundingVectors(true);
+            const mat = solidMaterial(scene, "imgm", "#2c2f2b");
+            const ring = MeshBuilder.CreateCylinder("imgr", { height: 0.22, diameter: 0.9, tessellation: 10 }, scene);
+            ring.position.set(-(b.max.x - b.min.x) * 0.08, b.max.y + 0.06, 0);
+            const gun = MeshBuilder.CreateCylinder("imgt", { height: 1.15, diameter: 0.09, tessellation: 6 }, scene);
+            gun.rotation.z = -Math.PI / 2;
+            gun.position.set(ring.position.x + 0.85, b.max.y + 0.37, 0);
+            ring.material = gun.material = mat;
+            ring.parent = gun.parent = root;
+          }
         }
         root.rotation.y = -Math.PI * 0.9; // botul spre cameră, ușor din profil
       }

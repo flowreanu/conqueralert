@@ -109,3 +109,7 @@ for (const [f, c] of Object.entries(F)) {
   await recolorCells(path.join(SRC, "kenny_car_kit/tractor-shovel.glb"), path.join(DST, "units", `harv_${f}.glb`), { "7,2": hex(c.p), "7,1": hex(c.s) });
   await recolorCells(path.join(SRC, "kenny_car_kit/truck-flat.glb"), path.join(DST, "units", `v3truck_${f}.glb`), { "7,2": hex(c.p) });
 }
+
+// S5: vehiculele de cercetare — Humvee (SUA, suv) și BRDM (URSS, truck): caroseria → culoarea facțiunii, detaliile verzi → secundară
+await recolorCells(path.join(SRC, "kenny_car_kit/suv.glb"), path.join(DST, "units", "scout_usa.glb"), { "7,2": hex(F.usa.p), "7,1": hex(F.usa.s) });
+await recolorCells(path.join(SRC, "kenny_car_kit/truck.glb"), path.join(DST, "units", "scout_ussr.glb"), { "7,2": hex(F.ussr.p), "7,1": hex(F.ussr.s) });

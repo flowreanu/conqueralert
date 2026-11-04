@@ -147,5 +147,10 @@
   "k_commercial3_building-e": {"path": "models/commercial3/building-e.glb", "recolor": "none", "yaw": 0, "noAlign": true, "unitScale": 7},
   "k_commercial3_building-f": {"path": "models/commercial3/building-f.glb", "recolor": "none", "yaw": 0, "noAlign": true, "unitScale": 7},
   "k_commercial3_building-g": {"path": "models/commercial3/building-g.glb", "recolor": "none", "yaw": 0, "noAlign": true, "unitScale": 7},
-  "k_commercial3_building-h": {"path": "models/commercial3/building-h.glb", "recolor": "none", "yaw": 0, "noAlign": true, "unitScale": 7}
+  "k_commercial3_building-h": {"path": "models/commercial3/building-h.glb", "recolor": "none", "yaw": 0, "noAlign": true, "unitScale": 7},
+  "toon_soldier_rocket": {"path": "models/units/toon_soldier_rocket.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "animated": true, "colors": {"character_main": "primary", "pants": "dark", "shoulderpad": "secondary"}},
+  "toon_enemy_rocket": {"path": "models/units/toon_enemy_rocket.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "animated": true, "colors": {"enemy_red": "primary"}},
+  "toon_engineer": {"path": "models/units/toon_engineer.glb", "recolor": "quaternius", "yaw": 90, "noAlign": true, "animated": true, "colors": {"hazmat_main": "primary"}},
+  "scout_usa": {"path": "models/units/scout_usa.glb", "recolor": "none", "yaw": 0},
+  "scout_ussr": {"path": "models/units/scout_ussr.glb", "recolor": "none", "yaw": 0}
 }

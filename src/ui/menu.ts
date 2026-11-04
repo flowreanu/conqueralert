@@ -43,8 +43,8 @@ export function backToMenu() {
 }
 
 const FACTION_INFO: Record<string, { motto: string; units: string }> = {
-  usa: { motto: "Rapizi și preciși", units: "Ranger · Tanc Liberty · Sentinel (artilerie)" },
-  ussr: { motto: "Blindaj greu, foc masiv", units: "Conscript · Tanc Ursus · Katiușa (rachete)" },
+  usa: { motto: "Rapizi și preciși", units: "Ranger · Bazooka · Humvee · Tanc Liberty · Sentinel" },
+  ussr: { motto: "Blindaj greu, foc masiv", units: "Conscript · Soldat RPG · BRDM · Tanc Ursus · Lansator V3" },
 };
 const DIFFS: { id: Difficulty; name: string; desc: string }[] = [
   { id: "easy", name: "Ușor", desc: "atacă rar, cu grupuri mici" },
@@ -78,7 +78,7 @@ export function showMenu(): Promise<GameSettings> {
         <label class="opt"><input type="checkbox" id="opt-fog" ${s.fog ? "checked" : ""}/> Ceață de război</label>
         <h2>Sunet</h2>${volumeHtml()}
         <button class="start" id="start">Start</button>
-        <div class="hint">Distruge toate clădirile și unitățile inamicului. Japonia vine într-o versiune viitoare.</div>
+        <div class="hint">Distruge toate clădirile și unitățile inamicului. Infanteria poate ocupa casele, inginerii capturează clădiri și puțuri de petrol. Japonia vine într-o versiune viitoare.</div>
       </div>`;
   };
   render();

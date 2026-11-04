@@ -4,5 +4,8 @@
   "refinery": {"name": "Rafinărie", "size": "medium", "models": {"usa": ["building_c", "tank_large"], "ussr": ["building_c", "tank_large"]}, "hp": 1000, "cost": 2000, "power": -40, "category": "structure", "prereq": ["power"], "freeUnit": {"usa": "harvUsa", "ussr": "harvUssr"}},
   "barracks": {"name": "Barăci", "size": "medium", "models": {"usa": ["building_k"], "ussr": ["building_k"]}, "hp": 800, "cost": 500, "power": -20, "category": "structure", "prereq": ["power"], "produces": "infantry"},
   "factory": {"name": "Fabrică de vehicule", "size": "large", "models": {"usa": ["building_a"], "ussr": ["building_f"]}, "hp": 1200, "cost": 2000, "power": -40, "category": "structure", "prereq": ["refinery", "barracks"], "produces": "vehicle"},
-  "turret": {"name": "Turelă", "size": "small", "models": {"usa": ["turret_gun5"], "ussr": ["turret_cannon4"]}, "hp": 700, "weapon": "turretGun", "sight": 28, "cost": 800, "power": -30, "category": "defense", "prereq": ["barracks"], "needsPower": true, "rotates": true}
+  "turret": {"name": "Turelă", "size": "small", "models": {"usa": ["turret_gun5"], "ussr": ["turret_cannon4"]}, "hp": 700, "weapon": "turretGun", "sight": 28, "cost": 800, "power": -30, "category": "defense", "prereq": ["barracks"], "needsPower": true, "rotates": true},
+  "civHouse": {"name": "Casă", "size": "civ", "models": {}, "hp": 700, "cost": 0, "power": 0, "category": "civilian", "buildable": false, "garrison": 5, "sight": 20},
+  "civShop": {"name": "Clădire comercială", "size": "civ", "models": {}, "hp": 1000, "cost": 0, "power": 0, "category": "civilian", "buildable": false, "garrison": 5, "sight": 22},
+  "derrick": {"name": "Puț de petrol", "size": "small", "models": {}, "hp": 900, "cost": 0, "power": 0, "category": "civilian", "buildable": false, "capturable": true, "income": 12, "sight": 12}
 }

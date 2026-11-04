@@ -14,13 +14,13 @@ const loadSettings = (): AudioSettings => {
 };
 
 export type Sfx =
-  | "rifle" | "rifle2" | "cannon" | "cannon2" | "turret" | "howitzer" | "v3"
+  | "rifle" | "rifle2" | "cannon" | "cannon2" | "turret" | "howitzer" | "v3" | "rocketAt" | "mg"
   | "boom" | "bigBoom" | "buildingBoom" | "infDeath"
   | "click" | "tab" | "ready" | "unitReady" | "place" | "error" | "alarm" | "sell" | "ack" | "ackAttack"
-  | "victory" | "defeat";
+  | "victory" | "defeat" | "capture" | "promote" | "garrison";
 
 /** Distanța minimă (s) între două redări ale aceluiași efect — evită zgomotul la 30 de puști deodată. */
-const GAP: Partial<Record<Sfx, number>> = { rifle: 0.045, rifle2: 0.045, cannon: 0.07, cannon2: 0.07, turret: 0.08, boom: 0.06, bigBoom: 0.1, infDeath: 0.08, ack: 0.12, ackAttack: 0.12, click: 0.03, tab: 0.03, error: 0.25 };
+const GAP: Partial<Record<Sfx, number>> = { mg: 0.05, rocketAt: 0.08, promote: 0.3, garrison: 0.2, rifle: 0.045, rifle2: 0.045, cannon: 0.07, cannon2: 0.07, turret: 0.08, boom: 0.06, bigBoom: 0.1, infDeath: 0.08, ack: 0.12, ackAttack: 0.12, click: 0.03, tab: 0.03, error: 0.25 };
 
 
 class AudioEngine {
@@ -169,6 +169,32 @@ class AudioEngine {
         this.noiseHit(g, t, "lowpass", 700, 200, 0.7, 0.01, 0.5, 0.6);
         this.tone(g, t, "sawtooth", 55, 110, 0.15, 1.2, 0.08);
         send(0.35);
+        break;
+      case "rocketAt":
+        // bazooka / RPG: „pac” scurt + șuierat
+        this.noiseHit(g, t, "lowpass", 900 * r, 200, 0.7, 0.002, 0.18, 0.6);
+        this.noiseHit(g, t + 0.03, "bandpass", 1400 * r, 3200, 1.4, 0.03, 0.45, 0.45);
+        send(0.2);
+        break;
+      case "mg":
+        // mitralieră grea: trei focuri rapide
+        for (let i = 0; i < 3; i++) {
+          this.noiseHit(g, t + i * 0.07, "bandpass", 1500 * r, 800, 0.9, 0.002, 0.06, 0.5);
+          this.tone(g, t + i * 0.07, "square", 110 * r, 50, 0.001, 0.04, 0.12);
+        }
+        break;
+      case "capture":
+        [64, 67, 71, 76].forEach((m, i) => this.tone(g, t + i * 0.09, "triangle", mtof(m), mtof(m), 0.004, i === 3 ? 0.45 : 0.14, 0.3));
+        break;
+      case "promote":
+        [76, 83, 88].forEach((m, i) => this.tone(g, t + i * 0.07, "triangle", mtof(m), mtof(m), 0.003, i === 2 ? 0.5 : 0.12, 0.28));
+        this.tone(g, t + 0.14, "sine", mtof(100), mtof(100), 0.003, 0.4, 0.06);
+        break;
+      case "garrison":
+        // ușa: bufnitură + clanță
+        this.tone(g, t, "sine", 120, 60, 0.002, 0.16, 0.5);
+        this.noiseHit(g, t, "lowpass", 700, 300, 0.7, 0.002, 0.1, 0.4);
+        this.tone(g, t + 0.12, "square", 1900, 1900, 0.001, 0.025, 0.08);
         break;
       case "boom":
         this.noiseHit(g, t, "lowpass", 1400 * r, 150, 0.7, 0.003, 0.45, 0.7);

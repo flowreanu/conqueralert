@@ -1,6 +1,6 @@
 import factionsData from "../data/factions.json";
 import { GameMap, Terrain } from "../map/gameMap";
-import { BUILDING_DEFS, SimEvent, UNIT_DEFS, World } from "../sim/world";
+import { BUILDING_DEFS, RANK_NAMES, SimEvent, UNIT_DEFS, World } from "../sim/world";
 import { CATEGORIES, Category, availability, buildTime, categoryOf, costOf, isLowPower, itemsFor, REPAIR_COST, SELL_REFUND } from "../sim/economy";
 import { EntityRenderer } from "../render/entities";
 import { RtsCamera } from "../render/camera";
@@ -31,6 +31,9 @@ const ICON_PATHS: Record<string, string> = {
   tank: '<path d="M5 26h30l-3 5H8zM9 26v-5h22v5M15 21v-4h10v4M25 18l11-3"/>',
   support: '<path d="M5 27h22l-2 4H8zM8 27v-5h16v5"/><path d="M14 22l16-12M30 10l3 1M12 31a2 2 0 1 0 0.1 0M22 31a2 2 0 1 0 0.1 0"/>',
   economy: '<path d="M4 27h32M6 27V16h14v11M20 27V12h8l6 7v8"/><circle cx="11" cy="29" r="2.5"/><circle cx="29" cy="29" r="2.5"/><path d="M9 16l4-5h4"/>',
+  antitank: '<circle cx="17" cy="9" r="3.5"/><path d="M17 13v10M12 17l5-2 5 2M17 23l-4 9M17 23l4 9M8 13l24-5M32 8l3-1"/>',
+  scout: '<path d="M5 26h30l-2-7H24l-3-5h-9l-3 5H7zM15 14V10h6v4M18 10h9"/><circle cx="11" cy="28" r="2.5"/><circle cx="29" cy="28" r="2.5"/>',
+  engineer: '<circle cx="18" cy="9" r="3.5"/><path d="M18 13v10M12 17l6-2 6 2M18 23l-4 9M18 23l4 9"/><path d="M27 15l6 6M25 19l4-4 3 1 1 3-4 4z"/>',
 };
 const icon = (k: string) => `<svg viewBox="0 0 40 40" class="ico">${ICON_PATHS[k] ?? ICON_PATHS.structure}</svg>`;
 const iconFor = (item: string) => (BUILDING_DEFS[item] ? item : UNIT_DEFS[item]?.role ?? "structure");
@@ -180,6 +183,7 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     if (!btn || !id) return;
     audio.play("click", 0.6);
     if (btn.dataset.act === "repair") world.issue({ kind: "repair", player, buildingId: id });
+    if (btn.dataset.act === "evacuate") world.issue({ kind: "evacuate", player, buildingId: id });
     if (btn.dataset.act === "sell") {
       if (performance.now() - sellArm < 2500) { world.issue({ kind: "sell", player, buildingId: id }); sellArm = 0; view.selectedBuilding = 0; }
       else sellArm = performance.now();
@@ -189,7 +193,17 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
   const updateInfo = () => {
     const b = view.selectedBuilding ? world.buildings.get(view.selectedBuilding) : undefined;
     let html = "", key = "";
-    if (b) {
+    if (b && BUILDING_DEFS[b.type].category === "civilian") {
+      // casă ocupată / puț de petrol
+      const def = BUILDING_DEFS[b.type];
+      const hpPct = Math.round((b.hp / b.maxHp) * 100);
+      key = `c${b.id}|${hpPct}|${b.garrison.length}`;
+      const inside = b.garrison.map((u) => `${UNIT_DEFS[u.type].name}${u.rank ? ` (${RANK_NAMES[u.rank]})` : ""}`).join(", ");
+      html = `<div class="ib-name">${def.name}</div>
+        <div class="ib-hp"><div style="width:${hpPct}%"></div></div>
+        <div class="ib-row muted">Viață ${hpPct}%${def.income ? ` · Venit +$${def.income}/s` : ""}${def.garrison ? `<br>Soldați: ${b.garrison.length} / ${def.garrison}${inside ? ` — ${inside}` : ""}<br>Trag pe ferestre (+6 m rază). Artileria și rachetele sunt periculoase.` : ""}</div>
+        ${def.garrison ? `<div class="ib-btns"><button data-act="evacuate" ${b.garrison.length ? "" : "disabled"}>Ieșiți din clădire</button></div>` : ""}`;
+    } else if (b) {
       const def = BUILDING_DEFS[b.type];
       const armed = performance.now() - sellArm < 2500;
       const hpPct = Math.round((b.hp / b.maxHp) * 100);
@@ -211,9 +225,23 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
         html = `<div class="ib-name">Recoltor${harvs.length > 1 ? ` ×${harvs.length}` : ""}</div>
           <div class="ib-hp ore"><div style="width:${(load / cap) * 100}%"></div></div>
           <div class="ib-row muted">Încărcătură ${Math.round(load)} / ${cap} · ${modes[harvs[0]!.harv!.mode]}<br>Click dreapta pe minereu: recoltează · pe rafinărie: descarcă</div>`;
+      } else if (view.selected.size) {
+        // unitățile selectate: nume, viață, rang
+        const us = [...view.selected].map((id) => world.units.get(id)!).filter(Boolean);
+        const hp = us.reduce((a, u) => a + u.hp, 0), max = us.reduce((a, u) => a + u.maxHp, 0);
+        const vets = us.filter((u) => u.rank > 0).length;
+        const one = us.length === 1 ? us[0] : null;
+        const def = one ? UNIT_DEFS[one.type] : null;
+        const nextXp = one && one.rank < 4 ? Math.ceil(def!.cost * [0, 2, 4, 7, 11][one.rank + 1] - one.xp) : 0;
+        const hint = us.some((u) => UNIT_DEFS[u.type].engineer) ? "<br>Inginer: click dreapta pe o clădire inamică / un puț de petrol = capturează; pe o clădire proprie avariată = repară."
+          : us.some((u) => UNIT_DEFS[u.type].garrison) ? "<br>Click dreapta pe o casă: intră (max. 5). Ctrl + click dreapta: atac forțat." : "";
+        key = `u${us.map((u) => u.id).join(",")}|${Math.round((hp / max) * 50)}|${us.map((u) => u.rank).join("")}|${one ? Math.round(one.xp) : vets}`;
+        html = `<div class="ib-name">${one ? def!.name : `${us.length} unități`}${one?.rank ? ` <span class="rank r${one.rank}">${one.rank === 4 ? "★" : "›".repeat(one.rank)}</span>` : ""}</div>
+          <div class="ib-hp"><div style="width:${(hp / max) * 100}%"></div></div>
+          <div class="ib-row muted">${one ? `${RANK_NAMES[one.rank]}${one.rank < 4 ? ` · încă $${nextXp} distruși până la rangul următor` : " · se repară singur"}` : `Veterani: ${vets}`}${hint}</div>`;
       } else {
         key = "none";
-        html = `<div class="ib-row muted">Selectează o clădire pentru reparare / vânzare.<br>Click dreapta cu o fabrică selectată: punct de adunare.</div>`;
+        html = `<div class="ib-row muted">Selectează o clădire pentru reparare / vânzare.<br>Click dreapta cu o fabrică selectată: punct de adunare.<br>Infanteria poate ocupa casele; inginerii capturează clădiri și puțuri de petrol.</div>`;
       }
     }
     if (key !== infoKey) { info.innerHTML = html; infoKey = key; }
@@ -275,11 +303,13 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
     ctx.globalAlpha = 1;
     for (const b of world.buildings.values()) {
       if (vision && !vision.buildingVisible(b)) continue;
+      // casele libere sunt deja în imaginea terenului; cele ocupate / puțurile au culoarea proprietarului
+      if (b.owner < 0 && !BUILDING_DEFS[b.type].capturable) continue;
       const f = FACTIONS[b.faction];
       ctx.fillStyle = f.primary;
-      ctx.fillRect(b.cx * S, mm.height - (b.cy + b.cells) * S, b.cells * S, b.cells * S);
+      ctx.fillRect(b.cx * S, mm.height - (b.cy + b.ch) * S, b.cw * S, b.ch * S);
       ctx.strokeStyle = "rgba(0,0,0,.55)";
-      ctx.strokeRect(b.cx * S + 0.5, mm.height - (b.cy + b.cells) * S + 0.5, b.cells * S - 1, b.cells * S - 1);
+      ctx.strokeRect(b.cx * S + 0.5, mm.height - (b.cy + b.ch) * S + 0.5, b.cw * S - 1, b.ch * S - 1);
     }
     for (const u of world.units.values()) {
       if (!seesUnit(u)) continue;
@@ -362,6 +392,18 @@ export function setupSidebar(world: World, view: EntityRenderer, input: InputCon
           say(world.units.has(ev.id) ? "Recoltorul este atacat!" : "Baza este atacată!", "warn", "alarm");
         }
         if (ev.kind === "defeated" && ev.player !== player) say("Inamicul a fost învins!", "ok");
+        if (ev.kind === "entered") {
+          const b = world.buildings.get(ev.buildingId);
+          const name = b ? BUILDING_DEFS[b.type].name : "Clădirea";
+          if (ev.player === player && ev.action === "capture") { say(`${name}: capturat!`, "ok", "capture"); renderGrid(); }
+          else if (ev.player !== player && ev.action === "capture" && ev.from === player) { say(`${name} a fost capturat de inamic!`, "warn", "alarm"); renderGrid(); }
+          else if (ev.player === player && ev.action === "repair") say(`${name}: reparat de inginer`, "ok", "ready");
+          else if (ev.player === player && ev.action === "garrison") audio.play("garrison", 0.8);
+        }
+        if (ev.kind === "promoted" && ev.player === player) {
+          const u = world.findUnit(ev.id);
+          say(`${u ? UNIT_DEFS[u.type].name : "Unitate"} promovat: ${RANK_NAMES[ev.rank]}`, "ok", "promote");
+        }
       }
     },
     frame() {

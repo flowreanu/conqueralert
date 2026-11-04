@@ -1,4 +1,4 @@
-import type { GameMap, Prop } from "./gameMap";
+import type { CivSpot, GameMap, Prop } from "./gameMap";
 import { Terrain, idx, inBounds } from "./gameMap";
 import type { Rng } from "./rng";
 
@@ -6,6 +6,8 @@ import type { Rng } from "./rng";
  * Decor urban (S4.2), în stilul hărților din RA2/RA3: șosele care trec peste poduri, drumuri pe maluri,
  * intrări spre baze și orășele la intersecții (case cu garduri, clădiri comerciale, felinare, mașini parcate).
  * Drumurile sunt doar vizuale (nu blochează); clădirile civile și mașinile parcate blochează celulele, ca un copac.
+ * S5: totul e simetric prin rotire la 180° (fiecare casă / mașină / gard are perechea ei), iar casele și magazinele
+ * nu mai sunt decor static, ci `CivSpot`-uri — devin clădiri neutre pe care infanteria le poate ocupa.
  */
 
 /** Mărimea modelelor Kenney în unitățile lor (x, y, z), măsurată din fișiere. */
@@ -59,8 +61,9 @@ export function buildDecor(m: GameMap, rng: Rng) {
   const vx = [Math.round((W * 0.33) / ROAD_TILE) * ROAD_TILE + 3, 0];
   vx[1] = W - vx[0];
   const west = m.bases.reduce((a, b) => (a.cx < b.cx ? a : b)), east = m.bases.reduce((a, b) => (a.cx > b.cx ? a : b));
-  const spurW = { x: vx[0], z: (west.cy + 0.5) * cs, to: (west.cx + 0.5) * cs + 20 };
-  const spurE = { x: vx[1], z: (east.cy + 0.5) * cs, to: (east.cx + 0.5) * cs - 20 };
+  // centrul bazei = colțul comun al celulelor (cx, cy) → exact simetric
+  const spurW = { x: vx[0], z: west.cy * cs, to: west.cx * cs + 20 };
+  const spurE = { x: vx[1], z: east.cy * cs, to: east.cx * cs - 20 };
 
   // noduri fixe (intersecții): [x, z, model, unghi]
   const nodes: [number, number, string, number][] = [
@@ -140,20 +143,38 @@ export function buildDecor(m: GameMap, rng: Rng) {
   const nearOre = (x: number, z: number) => m.oreFields.some((f) => Math.hypot(x / cs - f.cx, z / cs - f.cy) < f.r + 3);
   const nearBridge = (x: number, z: number) => m.bridges.some((b) => Math.abs(z / cs - (b.y0 + b.y1 + 1) / 2) < 6 && x / cs > b.x0 - 6 && x / cs < b.x1 + 7);
   const occupied = new Uint8Array(m.width * m.height);
+  const N = m.width * m.height;
+  const Wm = m.width * cs, Hm = m.height * cs;
+  const civ: CivSpot[] = [];
 
-  /** Ocupă amprenta (dreptunghi rotit cu 0 / 90°) dacă e liberă; întoarce false altfel. */
-  const claim = (x: number, z: number, w: number, d: number, alongX: boolean, block: boolean) => {
+  /**
+   * Ocupă amprenta (dreptunghi rotit cu 0 / 90°) și perechea ei rotită la 180°, dacă ambele sunt libere și amprenta
+   * e în întregime în jumătatea de sud. Întoarce celulele (jumătatea de sud) sau null.
+   */
+  const claim = (x: number, z: number, w: number, d: number, alongX: boolean, block: boolean): number[] | null => {
     const [hx, hz] = alongX ? [w / 2, d / 2] : [d / 2, w / 2];
     const cells: number[] = [];
     for (let cy = Math.floor((z - hz) / cs); cy <= Math.floor((z + hz - 0.01) / cs); cy++)
       for (let cx = Math.floor((x - hx) / cs); cx <= Math.floor((x + hx - 0.01) / cs); cx++) {
-        if (!inBounds(m, cx, cy)) return false;
-        const i = idx(m, cx, cy);
-        if (m.terrain[i] !== Terrain.Grass || roads[i] || occupied[i] || m.blocked[i]) return false;
-        cells.push(i);
+        if (!inBounds(m, cx, cy) || cy >= m.height / 2) return null;
+        cells.push(idx(m, cx, cy));
       }
-    for (const i of cells) { occupied[i] = 1; if (block) m.blocked[i] = 1; }
-    return true;
+    const all = [...cells, ...cells.map((i) => N - 1 - i)];
+    for (const i of all) if (m.terrain[i] !== Terrain.Grass || roads[i] || occupied[i] || m.blocked[i]) return null;
+    for (const i of all) { occupied[i] = 1; if (block) m.blocked[i] = 1; }
+    return cells;
+  };
+  /** Decor + perechea lui rotită. */
+  const addPair = (k: string, x: number, z: number, rot: number, scale = 1) => {
+    add(k, x, z, rot, scale);
+    add(k, Wm - x, Hm - z, rot + Math.PI, scale);
+  };
+  /** Casa / magazinul + perechea rotită, ca entități civile. */
+  const addCiv = (kind: CivSpot["kind"], model: string, x: number, z: number, rot: number, cells: number[]) => {
+    const xs = cells.map((i) => i % m.width), ys = cells.map((i) => (i / m.width) | 0);
+    const cx = Math.min(...xs), cy = Math.min(...ys), cw = Math.max(...xs) - cx + 1, ch = Math.max(...ys) - cy + 1;
+    civ.push({ kind, model, x, z, rot, cx, cy, cw, ch });
+    civ.push({ kind, model, x: Wm - x, z: Hm - z, rot: rot + Math.PI, cx: m.width - cx - cw, cy: m.height - cy - ch, cw, ch });
   };
 
   for (const t of towns) {
@@ -171,25 +192,29 @@ export function buildDecor(m: GameMap, rng: Rng) {
         const [x, z] = p.dir === "x" ? [p.x, p.z + off * side] : [p.x + off * side, p.z];
         if (nearBase(x, z) || nearOre(x, z) || nearBridge(x, z)) continue;
         const along = p.dir === "x";
-        if (!claim(x, z, w + 1, d + 0.5, along, true)) continue;
+        const cells = claim(x, z, w + 1, d + 0.5, along, true);
+        if (!cells) continue;
         // fața clădirii (+z în model) spre drum
         const rot = along ? faceDir(0, -side) : faceDir(-side, 0);
         // varianta de culoare (0 = paleta originală Kenney)
         const variant = rng.int(0, 4);
-        props.push({ model: variant ? kenneyId(k).replace(`k_${kit}_`, `k_${kit}${variant}_`) : kenneyId(k), x, z, rot, scale: 1 });
+        addCiv(commercial ? "shop" : "house", variant ? kenneyId(k).replace(`k_${kit}_`, `k_${kit}${variant}_`) : kenneyId(k), x, z, rot, cells);
         if (commercial) continue;
         // curtea: gard în spate, uneori o mașină pe alee și un copac
         const back = d / 2 + 1.4;
         const [fx, fz] = along ? [x, z + back * side] : [x + back * side, z];
-        if (claim(fx, fz, w, 0.8, along, false)) add("suburban/fence-1x4", fx, fz, along ? 0 : Math.PI / 2, (w / (1.68 * KIT_SCALE.suburban)) * 1.05);
+        if (claim(fx, fz, w, 0.8, along, false)) addPair("suburban/fence-1x4", fx, fz, along ? 0 : Math.PI / 2, (w / (1.68 * KIT_SCALE.suburban)) * 1.05);
         if (rng.next() < 0.45) {
           const sideOff = w / 2 + 1.7;
           const [cx, cz] = along ? [x + sideOff, z - (d / 2 - 2.2) * side] : [x - (d / 2 - 2.2) * side, z + sideOff];
           const car = rng.pick(CARS);
-          if (claim(cx, cz, 2.4, 4.6, !along, true)) add(car, cx, cz, along ? faceDir(0, -side) : faceDir(-side, 0));
+          if (claim(cx, cz, 2.4, 4.6, !along, true)) addPair(car, cx, cz, along ? faceDir(0, -side) : faceDir(-side, 0));
         } else if (rng.next() < 0.6) {
           const [tx, tz] = along ? [x - w / 2 - 1.6, z] : [x, z - w / 2 - 1.6];
-          if (claim(tx, tz, 1.6, 1.6, along, true)) props.push({ model: "k_suburban_tree-large", x: tx, z: tz, rot: rng.range(0, 6.28), scale: rng.range(0.9, 1.2) });
+          if (claim(tx, tz, 1.6, 1.6, along, true)) {
+            const r = rng.range(0, 6.28), s = rng.range(0.9, 1.2);
+            props.push({ model: "k_suburban_tree-large", x: tx, z: tz, rot: r, scale: s }, { model: "k_suburban_tree-large", x: Wm - tx, z: Hm - tz, rot: r + Math.PI, scale: s });
+          }
         }
       }
     }
@@ -202,5 +227,5 @@ export function buildDecor(m: GameMap, rng: Rng) {
     }
 
   m.props.push(...props);
-  return { roads, occupied, plazas };
+  return { roads, occupied, plazas, civ };
 }

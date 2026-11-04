@@ -73,7 +73,7 @@ export const buildTime = (cost: number) => Math.max(MIN_BUILD_TIME, cost / BUILD
 export const isLowPower = (e: PlayerEco) => e.powerUse > e.powerOut;
 
 export function categoryOf(item: string): Category | null {
-  if (BUILDING_DEFS[item]) return BUILDING_DEFS[item].category as Category;
+  if (BUILDING_DEFS[item]) return BUILDING_DEFS[item].category === "civilian" ? null : (BUILDING_DEFS[item].category as Category);
   const u = UNIT_DEFS[item];
   if (u) return u.producer === "barracks" ? "infantry" : "vehicle";
   return null;
@@ -159,7 +159,7 @@ export function applyEcoCommand(w: World, cmd: Command): boolean {
     }
     case "sell": {
       const b = w.buildings.get(cmd.buildingId);
-      if (!b || b.owner !== cmd.player) return true;
+      if (!b || b.owner !== cmd.player || BUILDING_DEFS[b.type].category === "civilian") return true;
       e.credits += Math.floor(BUILDING_DEFS[b.type].cost * SELL_REFUND * (b.hp / b.maxHp));
       w.removeBuilding(b);
       w.events.push({ kind: "sold", player: cmd.player, id: b.id, type: b.type });
@@ -167,7 +167,7 @@ export function applyEcoCommand(w: World, cmd: Command): boolean {
     }
     case "repair": {
       const b = w.buildings.get(cmd.buildingId);
-      if (b && b.owner === cmd.player) b.repairing = !b.repairing && b.hp < b.maxHp;
+      if (b && b.owner === cmd.player && BUILDING_DEFS[b.type].category !== "civilian") b.repairing = !b.repairing && b.hp < b.maxHp;
       return true;
     }
     default:
@@ -181,8 +181,12 @@ export function stepEconomy(w: World) {
   // energie (centralele avariate produc proporțional cu viața)
   for (const e of w.eco) { e.powerOut = 0; e.powerUse = 0; }
   for (const b of w.buildings.values()) {
-    const p = BUILDING_DEFS[b.type].power ?? 0;
+    if (b.owner < 0) continue;
+    const def = BUILDING_DEFS[b.type];
+    const p = def.power ?? 0;
     const e = w.eco[b.owner];
+    // puțul de petrol capturat: venit constant (S5)
+    if (def.income) { e.credits += def.income * DT; e.harvested += def.income * DT; }
     if (p > 0) e.powerOut += Math.round(p * (b.hp / b.maxHp));
     else e.powerUse -= p;
   }
@@ -295,7 +299,7 @@ export function placementCells(w: World, player: number, type: string, cx: numbe
 
 function nearOwnBase(w: World, player: number, cx: number, cy: number, n: number): boolean {
   for (const b of w.buildings.values()) {
-    if (b.owner !== player) continue;
+    if (b.owner !== player || BUILDING_DEFS[b.type].category === "civilian") continue;
     const gx = Math.max(0, b.cx - (cx + n), cx - (b.cx + b.cells));
     const gy = Math.max(0, b.cy - (cy + n), cy - (b.cy + b.cells));
     if (Math.max(gx, gy) <= BUILD_GAP) return true;

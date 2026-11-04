@@ -9,7 +9,7 @@
 - [x] S4.1: echilibrare (infanterie, bot Ușor, urmărire, minereu)
 - [x] S4.2: aspect vizual — drumuri, orășele, texturi de teren, V3, recoltor nou
 - [x] UI: sidebar nou, pictograme 3D, steaguri, sunet și muzică
-- [ ] S5: conținut + strategie (vezi „Plan S5”)
+- [x] S5: unități noi, case ocupabile, ingineri + puțuri de petrol, ranguri, hartă în oglindă, auto-deploy
 - [ ] S6: multiplayer cu prietenii (WebRTC, link de invitație, lockstep)
 - [ ] S7: facțiunea Japonia
 
@@ -113,19 +113,31 @@ Andrei a trimis o schiță de UI (panouri metalice, credite aurii, radar, pictog
   - Muzică proprie: dacă pui `public/audio/music_usa.mp3` / `music_ussr.mp3`, se folosesc fișierele (vezi `public/audio/README.md`).
 - Verificat în Chromium headless: meniu, joc, pauză, pictograme (toate 7 generate), contextul audio pornește după primul click și muzica are semnal. 60 de teste trec.
 
-## Plan S5 (cerut de Andrei, 4 nov. 2026)
-1. **Unități noi** (2–3 pe facțiune): infanterie antitanc, vehicul de cercetare rapid, inginer (capturează clădiri inamice / civile). Modele: Andrei le poate trimite sau căutăm asset-uri gratuite (CC0).
-2. **Infanteria intră în case** (ca în RA2): casele din orășele devin clădiri neutre cu viață; până la 5 soldați înăuntru; trag pe ferestre cu rază mai mare și protecție; casa distrusă → soldații ies; artileria / explozivii sunt contra lor. Click dreapta pe casă cu infanterie selectată = intră; buton „ieșiți” în panoul clădirii. Botul ar trebui să știe să le folosească (măcar să le atace).
-3. **Ranguri (veterani)**: experiență după valoarea a ce distrug; 0 → 1 săgeată → 2 săgeți → 3 săgeți → steluță. Bonusuri crescătoare: damage, cadență, viață; steluța = și regenerare. Insigna se vede lângă bara de viață și în panoul de selecție. Determinist (în simulare), cu teste.
-4. **Hartă în oglindă** (rotită la 180°) pentru meciuri corecte.
-5. **GitHub Action**: build + deploy automat pe Pages la fiecare push pe `main` (să nu mai fie nevoie de push manual pe `gh-pages`).
+## Ce s-a făcut în S5 — conținut + strategie
+- **Hartă în oglindă** (`src/map/gameMap.ts`, `decor.ts`): se generează jumătatea de sud (rândurile 0–47) și se copiază rotită la 180° (`mirrorIndex`). Râul are meandre impare față de mijloc, deci continuă lin; delta se desparte la ambele capete (rândul 15 și 80). Podurile: rândurile 24–26 și 69–71 (destul de departe de baze ca să încapă orășelele). Bazele: (14,50) ↔ (82,46) = colțurile Centrului de Construcție, exact rotite. Câmpurile de minereu, copacii, casele, gardurile, mașinile sunt perechi; startul meciului (unitățile) e rotit și el. Test: 0 celule diferite între cele două jumătăți. (Doar felinarele nu sunt în oglindă — pur decorative.)
+- **Unități noi** (câte 3 pe facțiune, modele CC0 deja în repo):
+  - infanterie antitanc: **Bazooka** (SUA) / **Soldat RPG** (URSS), 300 $, rachete `at` (0,9 vs tancuri, 0,6 vs vehicule ușoare, 0,2 vs infanterie, rază 17 / 16 m). La cost egal bat tancurile, dar pierd contra infanteriei obișnuite și a cercetașilor. Modele: Toon Shooter cu `RocketLauncher` (`scripts/prepare-toon.mjs`).
+  - cercetași: **Humvee** (SUA, Kenney `suv`, 12 m/s, vedere 32 m) / **BRDM** (URSS, Kenney `truck`, 11 m/s, vedere 30 m), 500 / 550 $, mitralieră grea pe acoperiș (modelată în cod, `rig: "mg"`), buni contra infanteriei. Recolorați în `scripts/prepare-kenney.mjs`.
+  - **Inginer** (500 $, Toon Shooter Hazmat cu pistol, neînarmat): click dreapta pe o clădire inamică = o capturează (inginerul dispare), pe o clădire proprie avariată = o repară complet, pe un **puț de petrol** = îl capturează.
+- **Puțuri de petrol** (2, simetrice, câte unul lângă fiecare bază): clădiri civile capturabile, +12 $/s pentru proprietar; model low-poly făcut în cod (turlă, balansier care se mișcă, rezervor).
+- **Infanteria în case** (ca în RA2): casele și magazinele din orășele (26, adică 13 perechi) nu mai sunt decor, ci clădiri neutre (`owner = NEUTRAL = -1`, `civHouse` 700 HP / `civShop` 1000 HP) cu amprentă dreptunghiulară (`Building.cw/ch`).
+  - Click dreapta pe casă cu infanterie selectată = intră (max. 5; cursor verde); casa devine a jucătorului; soldații trag pe ferestre, fiecare cu arma lui, cu **+6 m rază**; gloanțele aproape nu zgârie casa (0,15), artileria / rachetele / V3 o distrug → soldații ies vii (ca în RA2).
+  - Buton „Ieșiți din clădire” în panoul casei selectate; inamicul nu poate intra într-o casă ocupată (trebuie s-o distrugă). Casele libere nu sunt atacate automat; **Ctrl + click dreapta** = atac forțat.
+  - Indicator cu 5 „ferestre” deasupra casei (ocupate în culoarea facțiunii; ascuns pentru inamicii din ceață). Pe minimap casele ocupate au culoarea proprietarului.
+  - Casele și puțurile nu țin un jucător „în viață” (doar soldații dinăuntru contează).
+- **Ranguri** (`world.ts`: `RANK_XP`, `RANK_DAMAGE`, `RANK_COOLDOWN`, `RANK_HP`, `ELITE_REGEN`): experiența = costul a ce distruge unitatea (casa ocupată = 400); ranguri la 2× / 4× / 7× / 11× costul propriu (ca `VeteranRatio` din RA2, ca să nu „explodeze” unitățile ieftine). Bonusuri: damage ×1,1 / 1,2 / 1,3 / 1,5, reîncărcare ×0,92 / 0,85 / 0,78 / 0,7, viață ×1,1 / 1,2 / 1,3 / 1,5; elita (steluța) se repară singură (1,5%/s). Soldații din case primesc și ei experiență. Insignă aurie (1–3 săgeți / steluță) lângă bara de viață, vizibilă mereu; în panoul de selecție: rangul și câți $ mai trebuie distruși până la următorul. Notificare + sunet la promovare.
+- **Botul**: amestecă infanterie antitanc (mai multă când inamicul are multe vehicule) și cercetași; pe Normal / Greu trimite un inginer la cel mai apropiat puț care nu e al lui și ține 1 / 2 case ocupate în fața bazei; casele ocupate de inamic lângă bază declanșează apărarea; nu mai încearcă să repare / vândă clădiri civile.
+- **UI / sunet**: cursoare noi (intră / capturează), panouri pentru casa ocupată, puț și unitățile selectate (rang), notificări „capturat” / „capturat de inamic” / „reparat” / „promovat”, pictograme SVG pentru rolurile noi (pictogramele 3D se generează automat), sunete sintetizate noi: bazooka/RPG, mitralieră, capturare, promovare, ușa casei. Textul de ajutor și meniul actualizate.
+- **Auto-deploy**: `.github/workflows/deploy.yml` — la fiecare push pe `main`: `npm ci` → `npm test` → build cu `--base=/conqueralert/` → publică `dist/` pe `gh-pages` (`peaceiris/actions-gh-pages`, același branch ca până acum; nu trebuie schimbat nimic în setările Pages).
+- 79 de teste (19 noi în `tests/s5.test.ts`: simetria hărții și a startului, case neutre neatacate, intrare + rază mai mare + ieșire la distrugere, capacitate 5 / inamicul nu intră / „ieșiți”, vehiculele nu intră, capturare, reparare, venitul puțului, puțurile nu țin jucătorul în viață, praguri de rang, experiența din ucideri, damage-ul veteranilor + regenerarea elitei, experiența soldaților din case, contrele antitanc ↔ tancuri ↔ infanterie / cercetași, viteza / vederea cercetașilor, botul Normal capturează un puț + ocupă o casă și rămâne determinist). Testele de luptă / duel rulează acum pe teren curățat (nu mai depind de decor). Verificat în Chrome headless: case, indicatorul de ocupare, insignele, Humvee / BRDM, capturarea (fundația își schimbă culoarea), puțul.
 
 ## Note pentru S7 (Japonia)
 - Japonia mai are nevoie de: steag în `flags.ts` (există deja un placeholder), o piesă în `SONGS` (`music.ts`), sunete de armă în `FIRE` (`gameSounds.ts`).
-- Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `tank` / `support` / `economy`).
+- Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `antitank` / `engineer` / `tank` / `scout` / `support` / `economy`). Infanteria care intră în case are `"garrison": true`, inginerul `"engineer": true`.
 - Harta are doar 2 baze (vest/est) → pentru SUA vs Japonia sau URSS vs Japonia, `createMatchWorld` trebuie să atribuie bazele după index, nu după facțiune.
-- Pentru redeploy pe Pages: `npm run build -- --base=/conqueralert/` și push al `dist/` pe `gh-pages` (vezi README).
-- Idei rămase: MCV (Centrul de Construcție mobil), clădiri care „clipesc” la energie insuficientă, sunet (S7), botul ar putea folosi și el ceața.
+- Deploy: automat la push pe `main` (GitHub Action); manual: `npm run build -- --base=/conqueralert/` și push al `dist/` pe `gh-pages`.
+- Idei rămase: MCV (Centrul de Construcție mobil), clădiri care „clipesc” la energie insuficientă, botul ar putea folosi și el ceața, mașini civile care se pot strivi, poduri distructibile, alte clădiri „tech” capturabile (spital, aeroport).
+- Multiplayer (S6): comenzile noi `enter` / `evacuate` trec prin `issue()` ca toate celelalte; `stateHash()` include acum rangul, experiența, proprietarul clădirilor și ocupanții.
 
 ## Asset-uri Google Drive (folderul `Game_Assets`, id `1P1ejCJeLKS07emjhAMhW3KSCczENVXzu`)
 - ✅ `…124331Z…` (Tank Pack) și `…124642Z…` (Car Pack) — integrate în S2.
@@ -136,6 +148,8 @@ Andrei a trimis o schiță de UI (panouri metalice, credite aurii, radar, pictog
 - Ambele facțiuni au aceleași modele pentru Centrală / Rafinărie / Barăci / Centrul de Construcție (diferă fundația colorată).
 - Recoltorul descarcă oriunde lângă docul rafinăriei (nu „intră” în clădire).
 - Liberty și Ursus vin din același pachet → silueta e asemănătoare; diferă prin mărime (5,5 vs 6,5 m) și culoare.
+- Inginerul ține în mână un pistol (din pachetul Toon Shooter), deși nu trage.
+- Puțul de petrol capturat nu are bordură în culoarea proprietarului (se vede doar pe minimap / în panou).
 
 ## Feedback de la Andrei
 - Unitățile păreau disproporționate în randări → s-a aplicat tabelul de scară din SPEC.md (S1).

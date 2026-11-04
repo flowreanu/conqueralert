@@ -101,6 +101,7 @@ async function boot(settings: GameSettings) {
     if (c.player === PLAYER) {
       if (c.kind === "move" || c.kind === "amove") audio.play("ack", 0.7);
       if (c.kind === "attack") audio.play("ackAttack", 0.7);
+      if (c.kind === "enter") audio.play("ack", 0.7);
     }
     return issue(c);
   };

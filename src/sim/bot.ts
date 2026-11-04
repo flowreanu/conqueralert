@@ -14,7 +14,9 @@ import type { Difficulty } from "./scenario";
  * - armată: unitățile noi se adună în fața bazei; la intervale fixe pleacă un val de atac (attack-move)
  *   spre cea mai apropiată clădire inamică; valurile cresc treptat;
  * - apărare: dacă inamicul intră în bază, toată armata adunată (și valul, dacă e aproape) contraatacă;
- * - repară clădirile avariate când are bani.
+ * - repară clădirile avariate când are bani;
+ * - S5: amestecă infanteria antitanc / cercetașii, trimite ingineri să captureze puțurile de petrol (Normal / Greu)
+ *   și ocupă casele din fața bazei cu infanterie; casele ocupate de inamic sunt ținte (ca orice clădire).
  */
 
 interface Profile {
@@ -39,12 +41,15 @@ interface Profile {
   maxArmy: number;
   /** șansa de a pune ceva în coadă la fiecare „gând” (Ușor produce mai rar) */
   buildChance: number;
+  /** S5: câte case ține ocupate (0 = niciuna) și dacă trimite ingineri la puțurile de petrol */
+  garrisons: number;
+  engineers: boolean;
 }
 
 export const BOT_PROFILES: Record<Difficulty, Profile> = {
-  easy: { think: 30, firstWave: 420, waveGap: 200, waveSize: 4, waveGrow: 1, maxWave: 7, turrets: 1, refineries: 1, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.4, income: 0.6, maxArmy: 12, buildChance: 0.35 },
-  normal: { think: 15, firstWave: 270, waveGap: 140, waveSize: 6, waveGrow: 2, maxWave: 12, turrets: 2, refineries: 2, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.55, income: 0.9, maxArmy: 24, buildChance: 0.7 },
-  hard: { think: 8, firstWave: 180, waveGap: 100, waveSize: 8, waveGrow: 3, maxWave: 20, turrets: 4, refineries: 2, harvPerRef: 2, queueDepth: 2, vehicleShare: 0.65, income: 1.25, maxArmy: 45, buildChance: 1 },
+  easy: { think: 30, firstWave: 420, waveGap: 200, waveSize: 4, waveGrow: 1, maxWave: 7, turrets: 1, refineries: 1, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.4, income: 0.6, maxArmy: 12, buildChance: 0.35, garrisons: 0, engineers: false },
+  normal: { think: 15, firstWave: 270, waveGap: 140, waveSize: 6, waveGrow: 2, maxWave: 12, turrets: 2, refineries: 2, harvPerRef: 1, queueDepth: 1, vehicleShare: 0.55, income: 0.9, maxArmy: 24, buildChance: 0.7, garrisons: 1, engineers: true },
+  hard: { think: 8, firstWave: 180, waveGap: 100, waveSize: 8, waveGrow: 3, maxWave: 20, turrets: 4, refineries: 2, harvPerRef: 2, queueDepth: 2, vehicleShare: 0.65, income: 1.25, maxArmy: 45, buildChance: 1, garrisons: 2, engineers: true },
 };
 
 const THREAT_RADIUS = 30; // m în jurul clădirilor proprii
@@ -81,6 +86,8 @@ export class Bot implements Controller {
     this.defenses(w, base);
     this.units(w);
     this.army(w, base);
+    this.engineers(w);
+    this.garrisons(w, base);
     this.repairs(w);
   }
 
@@ -116,7 +123,7 @@ export class Bot implements Controller {
 
   private enemyBuildings(w: World): Building[] {
     const out: Building[] = [];
-    for (const b of w.buildings.values()) if (b.owner !== this.player && !w.defeated[b.owner]) out.push(b);
+    for (const b of w.buildings.values()) if (b.owner >= 0 && b.owner !== this.player && !w.defeated[b.owner]) out.push(b);
     return out;
   }
 
@@ -245,14 +252,68 @@ export class Bot implements Controller {
       return c.length ? c[Math.floor(this.rng.next() * c.length)] : null;
     };
     if (vq.length < depth && spare > 700 && this.rng.next() < this.profile.vehicleShare + 0.2) {
-      // 2/3 tancuri, 1/3 suport
-      const t = this.rng.next() < 0.67 ? pick(["tank"]) : pick(["support"]);
+      // ~55% tancuri, ~30% suport, ~15% cercetași
+      const r = this.rng.next();
+      const t = r < 0.55 ? pick(["tank"]) : r < 0.85 ? pick(["support"]) : pick(["scout"]);
       if (t) w.issue({ kind: "produce", player: this.player, item: t });
     }
     if (iq.length < depth && spare > 300 && this.rng.next() < 1.2 - this.profile.vehicleShare) {
-      const t = pick(["infantry"]);
+      // mai multă infanterie antitanc dacă inamicul are multe vehicule
+      let enemyVeh = 0, enemyAll = 0;
+      for (const u of w.units.values()) if (u.owner !== this.player && UNIT_DEFS[u.type].weapon) { enemyAll++; if (UNIT_DEFS[u.type].armor !== "infantry") enemyVeh++; }
+      const at = 0.2 + 0.4 * (enemyAll ? enemyVeh / enemyAll : 0);
+      const t = this.rng.next() < at ? pick(["antitank"]) ?? pick(["infantry"]) : pick(["infantry"]);
       if (t) w.issue({ kind: "produce", player: this.player, item: t });
     }
+    // inginer pentru puțurile de petrol libere / inamice (unul singur odată)
+    if (this.profile.engineers && spare > 900 && iq.length < depth && this.freeDerrick(w, null) && !this.myUnits(w).some((u) => UNIT_DEFS[u.type].engineer) && !iq.some((q) => UNIT_DEFS[q.type].engineer)) {
+      const t = pick(["engineer"]);
+      if (t) w.issue({ kind: "produce", player: this.player, item: t });
+    }
+  }
+
+  // ─────────────────────────── ingineri / case (S5) ───────────────────────────
+
+  /** Cel mai apropiat puț de petrol care nu e al botului. */
+  private freeDerrick(w: World, from: { x: number; z: number } | null): Building | null {
+    let best: Building | null = null, bd = Infinity;
+    for (const b of w.buildings.values()) {
+      if (!BUILDING_DEFS[b.type].capturable || b.owner === this.player) continue;
+      const d = from ? Math.hypot(b.x - from.x, b.z - from.z) : 0;
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  private engineers(w: World) {
+    for (const u of this.myUnits(w)) {
+      if (!UNIT_DEFS[u.type].engineer || u.enterId) continue;
+      const d = this.freeDerrick(w, u);
+      if (d) w.issue({ kind: "enter", player: this.player, unitIds: [u.id], targetId: d.id });
+    }
+  }
+
+  /** Ține câteva case din fața bazei ocupate cu infanterie (de la punctul de adunare). */
+  private garrisons(w: World, base: { x: number; z: number }) {
+    if (!this.profile.garrisons || w.tick % (TICK_RATE * 10) >= this.profile.think) return;
+    const held = [...w.buildings.values()].filter((b) => b.owner === this.player && BUILDING_DEFS[b.type].garrison && b.garrison.length);
+    const going = [...this.staging].map((id) => w.units.get(id)).filter((u) => u?.enterId);
+    if (held.length + (going.length ? 1 : 0) >= this.profile.garrisons) return;
+    const rally = this.rallyPoint(w, base);
+    let house: Building | null = null, bd = 48;
+    for (const b of w.buildings.values()) {
+      if (!BUILDING_DEFS[b.type].garrison || b.owner >= 0) continue;
+      const d = Math.hypot(b.x - rally.x, b.z - rally.z);
+      if (d < bd) { bd = d; house = b; }
+    }
+    if (!house) return;
+    const inf = [...this.staging].map((id) => w.units.get(id)!).filter((u) => u && UNIT_DEFS[u.type].garrison && !u.enterId);
+    if (inf.length < 4) return;
+    const ids = inf.slice(0, 3).map((u) => u.id);
+    w.issue({ kind: "enter", player: this.player, unitIds: ids, targetId: house.id });
+    // nu mai fac parte din armata care pleacă în valuri
+    for (const id of ids) this.staging.delete(id);
+    this.lastDecision = "garrison";
   }
 
   // ─────────────────────────── armată ───────────────────────────
@@ -268,7 +329,7 @@ export class Bot implements Controller {
     // curăță listele, adaugă unitățile noi la adunare
     for (const s of [this.staging, this.attackers]) for (const id of s) if (!w.units.has(id)) s.delete(id);
     for (const u of this.myUnits(w)) {
-      if (u.harv || !UNIT_DEFS[u.type].weapon) continue;
+      if (u.harv || !UNIT_DEFS[u.type].weapon || u.enterId) continue;
       if (!this.staging.has(u.id) && !this.attackers.has(u.id)) this.staging.add(u.id);
     }
 
@@ -338,11 +399,16 @@ export class Bot implements Controller {
 
   /** Centrul unităților inamice aflate în bază (sau null). */
   private threat(w: World): { x: number; z: number } | null {
-    const mine = this.mine(w);
+    const mine = this.mine(w).filter((b) => BUILDING_DEFS[b.type].category !== "civilian");
     let sx = 0, sz = 0, n = 0;
     for (const u of w.units.values()) {
       if (u.owner === this.player || !UNIT_DEFS[u.type].weapon) continue;
       if (mine.some((b) => Math.hypot(b.x - u.x, b.z - u.z) < THREAT_RADIUS)) { sx += u.x; sz += u.z; n++; }
+    }
+    // casele ocupate de inamic lângă bază
+    for (const b of w.buildings.values()) {
+      if (b.owner < 0 || b.owner === this.player || !b.garrison.length) continue;
+      if (mine.some((m) => Math.hypot(m.x - b.x, m.z - b.z) < THREAT_RADIUS + 10)) { sx += b.x; sz += b.z; n++; }
     }
     return n ? { x: sx / n, z: sz / n } : null;
   }
@@ -350,6 +416,6 @@ export class Bot implements Controller {
   private repairs(w: World) {
     const e = w.eco[this.player];
     if (e.credits < 900) return;
-    for (const b of this.mine(w)) if (!b.repairing && b.hp < b.maxHp * 0.7) { w.issue({ kind: "repair", player: this.player, buildingId: b.id }); break; }
+    for (const b of this.mine(w)) if (!b.repairing && b.hp < b.maxHp * 0.7 && BUILDING_DEFS[b.type].category !== "civilian") { w.issue({ kind: "repair", player: this.player, buildingId: b.id }); break; }
   }
 }
