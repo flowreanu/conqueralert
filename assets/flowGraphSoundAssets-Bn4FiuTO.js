@@ -1,0 +1,1 @@
+function e(e){if(!e)return null;if(typeof e==`string`)return e;if(typeof e.play==`function`)return null;let t=e.name;return typeof t==`string`?t:null}function t(t,n){if(n&&typeof n.play==`function`)return n;let r=e(n);return r===null?null:t.configuration.coordinator.getSoundAsset(r)}export{t as n,e as t};
