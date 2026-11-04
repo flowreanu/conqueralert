@@ -9,7 +9,9 @@
 - [x] S4.1: echilibrare (infanterie, bot Ușor, urmărire, minereu)
 - [x] S4.2: aspect vizual — drumuri, orășele, texturi de teren, V3, recoltor nou
 - [x] UI: sidebar nou, pictograme 3D, steaguri, sunet și muzică
-- [ ] S5: facțiunea Japonia
+- [ ] S5: conținut + strategie (vezi „Plan S5”)
+- [ ] S6: multiplayer cu prietenii (WebRTC, link de invitație, lockstep)
+- [ ] S7: facțiunea Japonia
 
 ## Ce s-a făcut în S1
 - Vite 8 + TypeScript + Babylon.js 9. Importuri Babylon „la bucată” prin `src/render/babylon.ts` (bundle principal ~390 KB gzip în loc de ~1,3 MB).
@@ -111,7 +113,14 @@ Andrei a trimis o schiță de UI (panouri metalice, credite aurii, radar, pictog
   - Muzică proprie: dacă pui `public/audio/music_usa.mp3` / `music_ussr.mp3`, se folosesc fișierele (vezi `public/audio/README.md`).
 - Verificat în Chromium headless: meniu, joc, pauză, pictograme (toate 7 generate), contextul audio pornește după primul click și muzica are semnal. 60 de teste trec.
 
-## Note pentru sesiunea următoare (S5 — Japonia)
+## Plan S5 (cerut de Andrei, 4 nov. 2026)
+1. **Unități noi** (2–3 pe facțiune): infanterie antitanc, vehicul de cercetare rapid, inginer (capturează clădiri inamice / civile). Modele: Andrei le poate trimite sau căutăm asset-uri gratuite (CC0).
+2. **Infanteria intră în case** (ca în RA2): casele din orășele devin clădiri neutre cu viață; până la 5 soldați înăuntru; trag pe ferestre cu rază mai mare și protecție; casa distrusă → soldații ies; artileria / explozivii sunt contra lor. Click dreapta pe casă cu infanterie selectată = intră; buton „ieșiți” în panoul clădirii. Botul ar trebui să știe să le folosească (măcar să le atace).
+3. **Ranguri (veterani)**: experiență după valoarea a ce distrug; 0 → 1 săgeată → 2 săgeți → 3 săgeți → steluță. Bonusuri crescătoare: damage, cadență, viață; steluța = și regenerare. Insigna se vede lângă bara de viață și în panoul de selecție. Determinist (în simulare), cu teste.
+4. **Hartă în oglindă** (rotită la 180°) pentru meciuri corecte.
+5. **GitHub Action**: build + deploy automat pe Pages la fiecare push pe `main` (să nu mai fie nevoie de push manual pe `gh-pages`).
+
+## Note pentru S7 (Japonia)
 - Japonia mai are nevoie de: steag în `flags.ts` (există deja un placeholder), o piesă în `SONGS` (`music.ts`), sunete de armă în `FIRE` (`gameSounds.ts`).
 - Facțiunea nouă: adaugă intrările în `units.json` / `buildings.json` (modelele per facțiune), `START_ARMY` din `scenario.ts`, `FACTION_INFO` din `menu.ts`; botul alege singur unitățile după `role` (`infantry` / `tank` / `support` / `economy`).
 - Harta are doar 2 baze (vest/est) → pentru SUA vs Japonia sau URSS vs Japonia, `createMatchWorld` trebuie să atribuie bazele după index, nu după facțiune.
